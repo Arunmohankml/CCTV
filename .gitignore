@@ -1,0 +1,30 @@
+# Node
+node_modules/
+dist/
+frontend/node_modules/
+frontend/dist/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+backend/__pycache__/
+backend/storage/*
+!backend/storage/.gitkeep
+venv/
+.venv/
+env/
+
+# Large Video Datasets (Stock CCTV footage)
+videos/*.mp4
+!videos/.gitkeep
+
+# External reference archives
+refrence/
+
+# Environment & Logs
+.env
+*.log
+.DS_Store

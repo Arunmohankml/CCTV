@@ -1,0 +1,582 @@
+
+import os
+import cv2
+import math
+import time
+import uuid
+import base64
+import numpy as np
+from typing import List, Dict, Any, Tuple
+from ultralytics import YOLO
+from anpr_engine import ANPREngine
+
+PERSON_CLASSES = {'person'}
+VEHICLE_CLASSES = {'car', 'motorcycle', 'bus', 'truck', 'bicycle', 'train', 'boat', 'airplane'}
+OBJECT_CLASSES = {
+    'backpack', 'handbag', 'suitcase', 'cell phone', 'laptop', 'book', 'umbrella',
+    'bottle', 'chair', 'traffic light', 'fire hydrant', 'stop sign', 'bench', 'tv',
+    'clock', 'remote', 'box', 'package', 'knife', 'scissors', 'sports ball', 'skateboard'
+}
+
+CLASS_COLORS = {
+    'person': '#38bdf8',
+    'car': '#f59e0b',
+    'motorcycle': '#f59e0b',
+    'bus': '#f59e0b',
+    'truck': '#f59e0b',
+    'bicycle': '#10b981',
+    'object': '#a855f7',
+    'backpack': '#a855f7',
+    'handbag': '#a855f7',
+    'suitcase': '#a855f7',
+    'cell phone': '#a855f7',
+    'laptop': '#a855f7',
+    'plate': '#10b981',
+    'default': '#94a3b8'
+}
+
+def is_point_in_polygon(point: Tuple[float, float], polygon: List[Tuple[float, float]]) -> bool:
+    x, y = point
+    n = len(polygon)
+    inside = False
+    p1x, p1y = polygon[0]
+    for i in range(n + 1):
+        p2x, p2y = polygon[i % n]
+        if y > min(p1y, p2y):
+            if y <= max(p1y, p2y):
+                if x <= max(p1x, p2x):
+                    if p1y != p2y:
+                        xinters = (y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x
+                    if p1x == p2x or x <= xinters:
+                        inside = not inside
+        p1x, p1y = p2x, p2y
+    return inside
+
+class VideoAnalyzer:
+    def __init__(self, model_name: str = 'yolov8n.pt'):
+        self.model_name = model_name
+        self.model = YOLO(model_name)
+        self.anpr_engine = ANPREngine()
+        self.track_history: Dict[int, Dict[str, Any]] = {}
+        self.last_face_capture_times: Dict[int, float] = {}
+
+    def reset_state(self):
+        self.track_history.clear()
+        self.last_face_capture_times.clear()
+        self.anpr_engine.reset()
+
+    def analyze_video(
+        self,
+        video_path: str,
+        restricted_zone: List[Tuple[float, float]] = None,
+        sample_step: int = 5,
+        progress_callback = None,
+        enable_boundary_check: bool = True
+    ) -> Dict[str, Any]:
+        if not os.path.exists(video_path):
+            raise FileNotFoundError(f'Video file not found at {video_path}')
+
+        if not restricted_zone or len(restricted_zone) < 3:
+            restricted_zone = [[0.25, 0.25], [0.75, 0.25], [0.75, 0.75], [0.25, 0.75]]
+
+        self.anpr_engine.reset()
+
+        cap = cv2.VideoCapture(video_path)
+        fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        duration_sec = total_frames / fps if fps > 0 else 0
+
+        # Smart dynamic sampling: 4-6 FPS for short clips, capped at ~350 keyframes for long CCTV feeds for instant <1.5s analysis
+        if sample_step is None or sample_step <= 5:
+            step = max(4, int(fps / 5))
+            if total_frames > 1500:
+                step = max(step, int(total_frames / 350))
+        else:
+            step = sample_step
+
+        frames_data = []
+        events = []
+        plate_registry = []
+        unique_people = set()
+        unique_vehicles = set()
+        unique_objects = set()
+        unique_plates = set()
+        active_zone_intrusions = set()
+        prev_positions = {}
+
+        frame_index = 0
+        total_detections_count = 0
+        intrusion_count = 0
+        t0 = time.time()
+
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            if frame_index % step == 0:
+                timestamp = round(frame_index / fps, 2)
+                
+                results = self.model.track(
+                    frame,
+                    persist=True,
+                    tracker='bytetrack.yaml',
+                    conf=0.25,
+                    iou=0.45,
+                    verbose=False
+                )
+
+                frame_objects = []
+                has_frame_intrusion = False
+
+                if results and len(results) > 0 and results[0].boxes is not None:
+                    boxes = results[0].boxes
+                    for box in boxes:
+                        cls_id = int(box.cls[0].cpu().numpy()) if box.cls is not None else -1
+                        class_name = self.model.names.get(cls_id, 'unknown').lower()
+                        conf = float(box.conf[0].cpu().numpy()) if box.conf is not None else 0.0
+                        track_id = int(box.id[0].cpu().numpy()) if box.id is not None else int(len(frame_objects) + 1)
+
+                        is_person = class_name in PERSON_CLASSES
+                        is_vehicle = class_name in VEHICLE_CLASSES
+                        is_object = class_name in OBJECT_CLASSES or (class_name not in PERSON_CLASSES and class_name not in VEHICLE_CLASSES and conf > 0.35)
+
+                        if not is_person and not is_vehicle and not is_object:
+                            continue
+
+                        xyxy = box.xyxy[0].cpu().numpy()
+                        x1, y1, x2, y2 = xyxy
+
+                        norm_x = round(float(x1 / width), 4)
+                        norm_y = round(float(y1 / height), 4)
+                        norm_w = round(float((x2 - x1) / width), 4)
+                        norm_h = round(float((y2 - y1) / height), 4)
+                        norm_bbox = [norm_x, norm_y, norm_w, norm_h]
+
+                        center_x = round(float((x1 + x2) / 2.0 / width), 4)
+                        bottom_y = round(float(y2 / height), 4)
+                        in_zone = is_point_in_polygon((center_x, bottom_y), restricted_zone)
+
+                        if in_zone and enable_boundary_check:
+                            has_frame_intrusion = True
+                            zone_key = (track_id, class_name, int(timestamp / 3))
+                            if zone_key not in active_zone_intrusions:
+                                active_zone_intrusions.add(zone_key)
+                                intrusion_count += 1
+                                events.append({
+                                    'id': f'evt-{len(events)+1:03d}',
+                                    'timestamp': timestamp,
+                                    'frame': frame_index,
+                                    'type': 'restricted_zone_intrusion',
+                                    'severity': 'CRITICAL',
+                                    'title': f'RESTRICTED ZONE BREACH ({class_name.upper()} #{track_id})',
+                                    'description': f'Unauthorized {class_name} #{track_id} crossed the perimeter boundary.',
+                                    'object': f'{class_name.title()} #{track_id}',
+                                    'confidence': round(conf * 100, 1),
+                                    'tracking_id': track_id,
+                                    'risk_level': 'HIGH'
+                                })
+
+                        if is_person:
+                            unique_people.add(track_id)
+                            obj_label = f'PERSON #{track_id}'
+
+                            frame_objects.append({
+                                'class': 'person',
+                                'label': obj_label,
+                                'confidence': round(conf * 100, 1),
+                                'tracking_id': track_id,
+                                'bbox': norm_bbox,
+                                'in_restricted_zone': in_zone and enable_boundary_check,
+                                'color': '#ef4444' if (in_zone and enable_boundary_check) else CLASS_COLORS.get('person')
+                            })
+                            total_detections_count += 1
+
+                        elif is_vehicle:
+                            unique_vehicles.add(track_id)
+                            plate_data = self.anpr_engine.extract_license_plate(frame, norm_bbox, track_id, class_name)
+                            plate_num = plate_data['plate_number'] if plate_data else 'NIL'
+                            obj_label = f'{class_name.upper()} #{track_id} [{plate_num}]'
+
+                            frame_objects.append({
+                                'class': class_name,
+                                'label': obj_label,
+                                'confidence': round(conf * 100, 1),
+                                'tracking_id': track_id,
+                                'bbox': norm_bbox,
+                                'plate_number': plate_num,
+                                'in_restricted_zone': in_zone and enable_boundary_check,
+                                'color': '#ef4444' if (in_zone and enable_boundary_check) else CLASS_COLORS.get(class_name, '#f59e0b')
+                            })
+                            total_detections_count += 1
+
+                            if track_id not in unique_plates:
+                                unique_plates.add(track_id)
+                                status_text = 'VERIFIED' if plate_num != 'NIL' else 'NOT VISIBLE / NIL'
+                                plate_registry.append({
+                                    'tracking_id': track_id,
+                                    'plate_number': plate_num,
+                                    'vehicle_type': class_name.title(),
+                                    'timestamp': timestamp,
+                                    'confidence': plate_data['confidence'] if plate_data else 0.0,
+                                    'status': status_text
+                                })
+                                
+                                if plate_num != 'NIL':
+                                    events.append({
+                                        'id': f'evt-{len(events)+1:03d}',
+                                        'timestamp': timestamp,
+                                        'frame': frame_index,
+                                        'type': 'license_plate_scanned',
+                                        'severity': 'LOW',
+                                        'title': f'ANPR PLATE SCANNED: {plate_num}',
+                                        'description': f'Vehicle {class_name.title()} #{track_id} detected with plate {plate_num}.',
+                                        'object': plate_num,
+                                        'confidence': plate_data['confidence'] if plate_data else 92.0,
+                                        'tracking_id': track_id,
+                                        'risk_level': 'NORMAL'
+                                    })
+                        
+                        elif is_object:
+                            unique_objects.add(f'{class_name}-{track_id}')
+                            obj_label = f'{class_name.upper()} #{track_id}'
+
+                            frame_objects.append({
+                                'class': class_name,
+                                'label': obj_label,
+                                'confidence': round(conf * 100, 1),
+                                'tracking_id': track_id,
+                                'bbox': norm_bbox,
+                                'in_restricted_zone': in_zone and enable_boundary_check,
+                                'color': '#ef4444' if (in_zone and enable_boundary_check) else CLASS_COLORS.get(class_name, '#c084fc')
+                            })
+                            total_detections_count += 1
+
+                frames_data.append({
+                    'timestamp': timestamp,
+                    'frame_index': frame_index,
+                    'objects': frame_objects,
+                    'has_intrusion': has_frame_intrusion
+                })
+
+            frame_index += 1
+
+        cap.release()
+        elapsed_sec = round(time.time() - t0, 2)
+
+        return {
+            'video_metadata': {
+                'file_name': os.path.basename(video_path),
+                'total_frames': total_frames,
+                'fps': round(fps, 2),
+                'duration': round(duration_sec, 2),
+                'width': width,
+                'height': height,
+                'processing_time_sec': elapsed_sec
+            },
+            'statistics': {
+                'total_detections': total_detections_count,
+                'people_count': len(unique_people),
+                'vehicle_count': len(unique_vehicles),
+                'objects_count': len(unique_objects),
+                'plates_scanned_count': len(plate_registry),
+                'intrusion_count': intrusion_count,
+                'total_alerts': len(events),
+                'processing_fps': round(total_frames / elapsed_sec, 1) if elapsed_sec > 0 else 30.0
+            },
+            'restricted_zone': restricted_zone,
+            'enable_boundary_check': enable_boundary_check,
+            'events': sorted(events, key=lambda x: x['timestamp']),
+            'plate_registry': plate_registry,
+            'frames': frames_data
+        }
+
+    def recalculate_zone(self, existing_result: Dict[str, Any], new_zone: List[Tuple[float, float]], enable_boundary_check: bool = True) -> Dict[str, Any]:
+        if not new_zone or len(new_zone) < 3:
+            new_zone = [[0.25, 0.25], [0.75, 0.25], [0.75, 0.75], [0.25, 0.75]]
+
+        updated_frames = []
+        non_intrusion_events = [e for e in existing_result.get('events', []) if e.get('type') != 'restricted_zone_intrusion']
+        new_events = list(non_intrusion_events)
+        active_zone_intrusions = set()
+        intrusion_count = 0
+
+        for f in existing_result.get('frames', []):
+            timestamp = f['timestamp']
+            frame_idx = f['frame_index']
+            has_intrusion = False
+            updated_objects = []
+
+            for obj in f['objects']:
+                bbox = obj['bbox']
+                cx = bbox[0] + bbox[2] / 2.0
+                by = bbox[1] + bbox[3]
+                in_zone = is_point_in_polygon((cx, by), new_zone)
+
+                if in_zone and enable_boundary_check:
+                    has_intrusion = True
+                    obj_class = obj['class']
+                    track_id = obj['tracking_id']
+                    zone_key = (track_id, obj_class, int(timestamp / 3))
+
+                    if zone_key not in active_zone_intrusions:
+                        active_zone_intrusions.add(zone_key)
+                        intrusion_count += 1
+                        new_events.append({
+                            'id': f'evt-{len(new_events)+1:03d}',
+                            'timestamp': timestamp,
+                            'frame': frame_idx,
+                            'type': 'restricted_zone_intrusion',
+                            'severity': 'CRITICAL',
+                            'title': f'RESTRICTED ZONE BREACH ({obj_class.upper()} #{track_id})',
+                            'description': f'Unauthorized {obj_class} #{track_id} crossed the perimeter boundary.',
+                            'object': f'{obj_class.title()} #{track_id}',
+                            'confidence': obj.get('confidence', 90.0),
+                            'tracking_id': track_id,
+                            'risk_level': 'HIGH'
+                        })
+
+                obj_copy = dict(obj)
+                obj_copy['in_restricted_zone'] = in_zone and enable_boundary_check
+                if obj_copy['class'] == 'person':
+                    obj_copy['color'] = '#ef4444' if (in_zone and enable_boundary_check) else CLASS_COLORS['person']
+                elif obj_copy['class'] in VEHICLE_CLASSES:
+                    obj_copy['color'] = '#ef4444' if (in_zone and enable_boundary_check) else CLASS_COLORS.get(obj_copy['class'], '#ffb700')
+
+                updated_objects.append(obj_copy)
+
+            updated_frames.append({
+                'timestamp': timestamp,
+                'frame_index': frame_idx,
+                'objects': updated_objects,
+                'has_intrusion': has_intrusion
+            })
+
+        res_copy = dict(existing_result)
+        res_copy['restricted_zone'] = new_zone
+        res_copy['enable_boundary_check'] = enable_boundary_check
+        res_copy['frames'] = updated_frames
+        res_copy['events'] = sorted(new_events, key=lambda x: x['timestamp'])
+        res_copy['statistics']['intrusion_count'] = intrusion_count
+        res_copy['statistics']['total_alerts'] = len(new_events)
+        return res_copy
+
+    def detect_live_frame(
+        self,
+        frame: np.ndarray,
+        timestamp: float = 0.0,
+        restricted_zone: List[List[float]] = None,
+        enable_boundary_check: bool = True
+    ) -> Dict[str, Any]:
+        if restricted_zone is None or len(restricted_zone) < 3:
+            restricted_zone = [[0.25, 0.25], [0.75, 0.25], [0.75, 0.75], [0.25, 0.75]]
+
+        height, width = frame.shape[:2]
+        results = self.model.track(
+            frame,
+            persist=True,
+            tracker='bytetrack.yaml',
+            conf=0.25,
+            iou=0.45,
+            verbose=False
+        )
+
+        frame_objects = []
+        new_plates = []
+        new_events = []
+        new_faces = []
+        has_intrusion = False
+
+        if results and len(results) > 0 and results[0].boxes is not None:
+            boxes = results[0].boxes
+            for box in boxes:
+                cls_id = int(box.cls[0].cpu().numpy()) if box.cls is not None else -1
+                class_name = self.model.names.get(cls_id, 'unknown').lower()
+                conf = float(box.conf[0].cpu().numpy()) if box.conf is not None else 0.0
+                track_id = int(box.id[0].cpu().numpy()) if box.id is not None else int(len(frame_objects) + 1)
+
+                is_person = class_name in PERSON_CLASSES
+                is_vehicle = class_name in VEHICLE_CLASSES
+                is_object = class_name in OBJECT_CLASSES or (class_name not in PERSON_CLASSES and class_name not in VEHICLE_CLASSES and conf > 0.35)
+
+                if not is_person and not is_vehicle and not is_object:
+                    continue
+
+                xyxy = box.xyxy[0].cpu().numpy()
+                x1, y1, x2, y2 = xyxy
+
+                norm_x = round(float(x1 / width), 4)
+                norm_y = round(float(y1 / height), 4)
+                norm_w = round(float((x2 - x1) / width), 4)
+                norm_h = round(float((y2 - y1) / height), 4)
+                norm_bbox = [norm_x, norm_y, norm_w, norm_h]
+
+                center_x = round(float((x1 + x2) / 2.0 / width), 4)
+                bottom_y = round(float(y2 / height), 4)
+                in_zone = is_point_in_polygon((center_x, bottom_y), restricted_zone)
+
+                if in_zone and enable_boundary_check:
+                    has_intrusion = True
+                    new_events.append({
+                        'id': f'evt-{uuid.uuid4().hex[:6]}',
+                        'timestamp': timestamp,
+                        'type': 'restricted_zone_intrusion',
+                        'severity': 'CRITICAL',
+                        'title': f'RESTRICTED ZONE BREACH ({class_name.upper()} #{track_id})',
+                        'description': f'Unauthorized {class_name} #{track_id} crossed the perimeter boundary.',
+                        'object': f'{class_name.title()} #{track_id}',
+                        'confidence': round(conf * 100, 1),
+                        'tracking_id': track_id,
+                        'risk_level': 'HIGH'
+                    })
+
+                if is_person:
+                    # Detect running / rapid movement via velocity tracking
+                    is_running = False
+                    if track_id in self.track_history:
+                        last_pos = self.track_history[track_id]['pos']
+                        last_time = self.track_history[track_id]['time']
+                        dt = max(0.04, timestamp - last_time)
+                        if dt < 3.0:
+                            dist = math.sqrt((center_x - last_pos[0])**2 + (bottom_y - last_pos[1])**2)
+                            speed_val = dist / dt
+                            if speed_val > 0.14: # Running speed threshold
+                                is_running = True
+
+                    self.track_history[track_id] = {'pos': (center_x, bottom_y), 'time': timestamp}
+
+                    if is_running:
+                        new_events.append({
+                            'id': f'evt-{uuid.uuid4().hex[:6]}',
+                            'timestamp': timestamp,
+                            'type': 'running_detected',
+                            'severity': 'HIGH',
+                            'title': f'🏃 RUNNING DETECTED (Person #{track_id})',
+                            'description': f'Subject #{track_id} is running rapidly across the surveillance field.',
+                            'object': f'Person #{track_id}',
+                            'confidence': round(conf * 100, 1),
+                            'tracking_id': track_id,
+                            'risk_level': 'ELEVATED'
+                        })
+
+                    obj_label = f'PERSON #{track_id} [🏃 RUNNING]' if is_running else f'PERSON #{track_id}'
+                    frame_objects.append({
+                        'class': 'person',
+                        'label': obj_label,
+                        'confidence': round(conf * 100, 1),
+                        'tracking_id': track_id,
+                        'bbox': norm_bbox,
+                        'is_running': is_running,
+                        'in_restricted_zone': in_zone and enable_boundary_check,
+                        'color': '#ef4444' if (in_zone and enable_boundary_check) else ('#f97316' if is_running else CLASS_COLORS.get('person'))
+                    })
+
+                    # Extract zoomed face/head thumbnail snapshot with 2.5s cooldown
+                    last_face_t = self.last_face_capture_times.get(track_id, -10.0)
+                    pw = int(x2 - x1)
+                    ph = int(y2 - y1)
+                    if (timestamp - last_face_t >= 2.5 or is_running) and pw > 10 and ph > 15:
+                        self.last_face_capture_times[track_id] = timestamp
+                        face_y1 = max(0, int(y1 - ph * 0.06))
+                        face_y2 = min(height, int(y1 + ph * 0.40))
+                        face_x1 = max(0, int(x1 - pw * 0.05))
+                        face_x2 = min(width, int(x2 + pw * 0.05))
+
+                        face_crop = frame[face_y1:face_y2, face_x1:face_x2]
+                        if face_crop.size > 0 and face_crop.shape[0] > 8 and face_crop.shape[1] > 8:
+                            thumb = cv2.resize(face_crop, (160, 160), interpolation=cv2.INTER_CUBIC)
+                            _, buf = cv2.imencode('.jpg', thumb, [cv2.IMWRITE_JPEG_QUALITY, 90])
+                            face_b64 = f"data:image/jpeg;base64,{base64.b64encode(buf).decode('utf-8')}"
+
+                            new_faces.append({
+                                'id': f'face-{track_id}',
+                                'tracking_id': track_id,
+                                'label': f'Subject #{track_id}',
+                                'timestamp': timestamp,
+                                'confidence': round(conf * 100, 1),
+                                'image_url': face_b64,
+                                'is_running': is_running,
+                                'in_restricted_zone': in_zone and enable_boundary_check
+                            })
+
+                elif is_vehicle:
+                    plate_data = self.anpr_engine.extract_license_plate(frame, norm_bbox, track_id, class_name)
+                    plate_num = plate_data['plate_number'] if plate_data else 'NIL'
+
+                    # Detect overspeeding via velocity tracking
+                    is_overspeeding = False
+                    est_speed_kmh = 45
+                    if track_id in self.track_history:
+                        last_pos = self.track_history[track_id]['pos']
+                        last_time = self.track_history[track_id]['time']
+                        dt = max(0.04, timestamp - last_time)
+                        if dt < 3.0:
+                            dist = math.sqrt((center_x - last_pos[0])**2 + (bottom_y - last_pos[1])**2)
+                            speed_val = dist / dt
+                            est_speed_kmh = int(min(145, max(25, speed_val * 350)))
+                            if est_speed_kmh > 75: # Speed limit 60 km/h
+                                is_overspeeding = True
+
+                    self.track_history[track_id] = {'pos': (center_x, bottom_y), 'time': timestamp}
+
+                    if is_overspeeding:
+                        new_events.append({
+                            'id': f'evt-{uuid.uuid4().hex[:6]}',
+                            'timestamp': timestamp,
+                            'type': 'vehicle_overspeeding',
+                            'severity': 'HIGH',
+                            'title': f'🚨 SPEEDING DETECTED ({class_name.upper()} #{track_id})',
+                            'description': f'Vehicle #{track_id} [{plate_num}] moving at excessive speed ({est_speed_kmh} km/h - Limit: 60 km/h).',
+                            'object': f'{class_name.title()} #{track_id} [{plate_num}]',
+                            'confidence': round(conf * 100, 1),
+                            'tracking_id': track_id,
+                            'risk_level': 'ELEVATED'
+                        })
+
+                    obj_label = f'{class_name.upper()} #{track_id} [{plate_num}] [🚨 {est_speed_kmh} KM/H]' if is_overspeeding else f'{class_name.upper()} #{track_id} [{plate_num}]'
+
+                    frame_objects.append({
+                        'class': class_name,
+                        'label': obj_label,
+                        'confidence': round(conf * 100, 1),
+                        'tracking_id': track_id,
+                        'bbox': norm_bbox,
+                        'plate_number': plate_num,
+                        'is_overspeeding': is_overspeeding,
+                        'speed_kmh': est_speed_kmh,
+                        'in_restricted_zone': in_zone and enable_boundary_check,
+                        'color': '#ef4444' if (in_zone and enable_boundary_check or is_overspeeding) else CLASS_COLORS.get(class_name, '#f59e0b')
+                    })
+
+                    status_text = 'VERIFIED' if plate_num != 'NIL' else 'NOT VISIBLE / NIL'
+                    new_plates.append({
+                        'tracking_id': track_id,
+                        'plate_number': plate_num,
+                        'vehicle_type': class_name.title(),
+                        'timestamp': timestamp,
+                        'confidence': plate_data['confidence'] if plate_data else 0.0,
+                        'status': status_text
+                    })
+
+                elif is_object:
+                    obj_label = f'{class_name.upper()} #{track_id}'
+                    frame_objects.append({
+                        'class': class_name,
+                        'label': obj_label,
+                        'confidence': round(conf * 100, 1),
+                        'tracking_id': track_id,
+                        'bbox': norm_bbox,
+                        'in_restricted_zone': in_zone and enable_boundary_check,
+                        'color': '#ef4444' if (in_zone and enable_boundary_check) else CLASS_COLORS.get(class_name, '#c084fc')
+                    })
+
+        return {
+            'timestamp': timestamp,
+            'objects': frame_objects,
+            'has_intrusion': has_intrusion,
+            'new_plates': new_plates,
+            'new_events': new_events,
+            'new_faces': new_faces
+        }
