@@ -25,6 +25,8 @@ app.add_middleware(
 
 # Directories for uploads & cached analysis results
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
+VIDEOS_DIR = os.path.join(PROJECT_ROOT, "videos")
 STORAGE_DIR = os.path.join(BASE_DIR, "storage")
 UPLOADS_DIR = os.path.join(STORAGE_DIR, "uploads")
 RESULTS_DIR = os.path.join(STORAGE_DIR, "results")

@@ -19,95 +19,82 @@ def discover_sample_videos() -> List[Dict[str, str]]:
             "title": "🎭 Masked Thieves in Balaclavas CCTV",
             "category": "Suspicious Activity & Mask Detection",
             "description": "Perimeter camera detecting masked perpetrators in balaclavas attempting residential burglary.",
-            "path": os.path.join(VIDEOS_DIR, "stock-footage-cctv-records-how-masked-thiefs-in-balaclava-is-going-to-steal-and-rob-the-house.webm")
+            "pattern": "masked-thiefs"
         },
         {
             "id": "video-cat-burglar",
             "title": "🥷 Cat Burglar After-Hours Intrusion CCTV",
             "category": "Facility Intrusion & Theft",
             "description": "Surveillance footage of unauthorized intruder sneaking into commercial shopping center after hours.",
-            "path": os.path.join(VIDEOS_DIR, "stock-footage-surveillance-security-camera-footage-of-a-cat-burglar-sneaking-into-the-shopping-center-after-hours.webm")
+            "pattern": "cat-burglar"
         },
         {
             "id": "video-military-running",
             "title": "🏃 Sprinting & Fleeing Suspects CCTV",
             "category": "Suspect Pursuit & Running",
             "description": "High-speed kinematic velocity camera detecting rapid sprinting and fleeing suspects.",
-            "path": os.path.join(VIDEOS_DIR, "Two_people_running_in_military_202608270710.mp4")
+            "pattern": "Two_people_running"
         },
         {
             "id": "video-military-convoy",
             "title": "🎖️ Military Convoy & Vehicle Perimeter",
             "category": "Perimeter & Vehicle Security",
             "description": "Restricted military corridor camera monitoring convoy vehicles and passing traffic.",
-            "path": os.path.join(VIDEOS_DIR, "Car_passing_military_vehicles_hi._202608270720.mp4")
+            "pattern": "Car_passing_military"
         },
         {
             "id": "video-five-thieves",
             "title": "Five Suspects / Theft CCTV Feed",
             "category": "Security Breach & Theft",
             "description": "Perimeter camera detecting multiple unauthorized individuals and intrusion activity.",
-            "path": os.path.join(VIDEOS_DIR, "vidssave.com five Thief Caught on CCTV camera 720P.mp4")
+            "pattern": "five Thief Caught"
         },
         {
             "id": "video-security-alpha",
             "title": "📹 High-Security Sector Alpha Feed",
             "category": "Facility Security",
             "description": "Direct surveillance camera monitoring high-priority access zone.",
-            "path": os.path.join(VIDEOS_DIR, "WhatsApp Video 2026-08-27 at 7.32.51 AM.mp4")
+            "pattern": "7.32.51"
         },
         {
             "id": "video-security-bravo",
             "title": "📹 High-Security Sector Bravo Feed",
             "category": "Facility Security",
             "description": "Direct surveillance camera monitoring perimeter gateway corridor.",
-            "path": os.path.join(VIDEOS_DIR, "WhatsApp Video 2026-08-27 at 7.32.55 AM.mp4")
+            "pattern": "7.32.55"
         },
         {
             "id": "video-security-charlie",
             "title": "📹 High-Security Sector Charlie Feed",
             "category": "Facility Security",
             "description": "Direct surveillance camera observing building entry sector.",
-            "path": os.path.join(VIDEOS_DIR, "WhatsApp Video 2026-08-27 at 7.32.57 AM.mp4")
-        },
-        {
-            "id": "video-highway-traffic",
-            "title": "Highway Traffic Flow & Multi-Lane ANPR",
-            "category": "Highway & Traffic Surveillance",
-            "description": "Ultra-HD 1080p60 multi-lane highway surveillance feed tracking vehicle flow and license plates.",
-            "path": os.path.join(VIDEOS_DIR, "vidssave.com Traffic Flow In The Highway - 4K Stock Videos _ NoCopyright _ AllVideoFree 1080p60.mp4")
-        },
-        {
-            "id": "video-solapur",
-            "title": "Solapur Traffic & Incident CCTV",
-            "category": "Traffic & Incident",
-            "description": "City intersection surveillance camera monitoring vehicle collision risks.",
-            "path": os.path.join(VIDEOS_DIR, "vidssave.com accident CCTV camera capture @solapur 480p.mp4")
-        },
-        {
-            "id": "video-kerala-machete",
-            "title": "Kerala Machete Incident CCTV",
-            "category": "Armed Incident",
-            "description": "Public surveillance feed capturing armed perpetrator confrontation.",
-            "path": os.path.join(VIDEOS_DIR, "vidssave.com This Kerala policeman’s bravery went viral on the internet as he subdued a man wielding a machete 720P.mp4")
+            "pattern": "7.32.57"
         }
     ]
 
     added_paths = set()
 
     for sample in known_samples:
-        if os.path.exists(sample["path"]):
-            size_mb = round(os.path.getsize(sample["path"]) / (1024 * 1024), 2)
+        matched_file = None
+        pattern = sample.get("pattern", "")
+        if os.path.exists(VIDEOS_DIR):
+            for fname in os.listdir(VIDEOS_DIR):
+                if pattern and pattern.lower() in fname.lower():
+                    matched_file = os.path.abspath(os.path.join(VIDEOS_DIR, fname))
+                    break
+
+        if matched_file and os.path.exists(matched_file):
+            size_mb = round(os.path.getsize(matched_file) / (1024 * 1024), 2)
             samples.append({
                 "id": sample["id"],
                 "title": sample["title"],
                 "category": sample["category"],
                 "description": sample["description"],
-                "file_path": sample["path"],
+                "file_path": matched_file,
                 "size_mb": size_mb,
                 "is_sample": True
             })
-            added_paths.add(os.path.abspath(sample["path"]))
+            added_paths.add(matched_file)
 
     # Dynamic scan of any additional video files dropped into videos/ directory
     if os.path.exists(VIDEOS_DIR):

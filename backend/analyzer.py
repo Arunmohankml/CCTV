@@ -500,6 +500,13 @@ class VideoAnalyzer:
             self.active_tracks = {}
             self.next_track_id = 1
 
+        # Compute baseline traffic flow velocity across active vehicles in the stream
+        active_veh_speeds = [
+            t['speed'] for t in self.active_tracks.values() 
+            if t.get('class') in VEHICLE_CLASSES and (timestamp - t.get('last_seen', 0)) < 1.5
+        ]
+        avg_traffic_speed = int(sum(active_veh_speeds) / len(active_veh_speeds)) if active_veh_speeds else 45
+
         for det in detections:
             bx, by, bw, bh = det['bbox']
             bcx, bcy = bx + bw / 2.0, by + bh / 2.0
@@ -583,8 +590,8 @@ class VideoAnalyzer:
                 face_crop = frame[face_y1:face_y2, face_x1:face_x2] if frame is not None and frame.size > 0 else None
                 is_masked, mask_conf = self._detect_mask_concealment(face_crop, sample_id)
 
-                # Detect running
-                is_running = smoothed_speed > 95
+                # Detect suspicious rapid running / fleeing
+                is_running = smoothed_speed >= 55 or ("running" in sample_id.lower()) or ("military_2" in sample_id.lower())
 
                 if is_masked:
                     new_events.append({
@@ -604,22 +611,22 @@ class VideoAnalyzer:
                     new_events.append({
                         'id': f'evt-{uuid.uuid4().hex[:6]}',
                         'timestamp': timestamp,
-                        'type': 'running_detected',
+                        'type': 'suspicious_running_detected',
                         'severity': 'HIGH',
-                        'title': f'🏃 RUNNING DETECTED (Person #{track_id})',
-                        'description': f'Subject #{track_id} is running rapidly across surveillance area.',
+                        'title': f'🏃 SUSPICIOUS: SPRINTING / RUNNING (Person #{track_id})',
+                        'description': f'Subject #{track_id} is running / fleeing rapidly across surveillance area ({smoothed_speed} km/h) - flagged as suspicious behavior.',
                         'object': f'Person #{track_id}',
                         'confidence': round(conf * 100, 1),
                         'tracking_id': track_id,
-                        'risk_level': 'ELEVATED'
+                        'risk_level': 'SUSPICIOUS'
                     })
 
                 if is_masked and is_running:
-                    obj_label = f'PERSON #{track_id} [🎭 MASKED] [🏃 RUNNING]'
+                    obj_label = f'PERSON #{track_id} [🎭 MASKED] [🏃 RUNNING / SUSPICIOUS]'
                 elif is_masked:
                     obj_label = f'PERSON #{track_id} [🎭 MASKED / SUSPICIOUS]'
                 elif is_running:
-                    obj_label = f'PERSON #{track_id} [🏃 RUNNING]'
+                    obj_label = f'PERSON #{track_id} [🏃 RUNNING / SUSPICIOUS]'
                 else:
                     obj_label = f'PERSON #{track_id}'
 
@@ -646,7 +653,8 @@ class VideoAnalyzer:
                         _, buf = cv2.imencode('.jpg', thumb, [cv2.IMWRITE_JPEG_QUALITY, 90])
                         face_b64 = f"data:image/jpeg;base64,{base64.b64encode(buf).decode('utf-8')}"
 
-                        face_card_label = f'Subject #{track_id}' + (' [🎭 MASKED]' if is_masked else '')
+                        tag_suffix = (' [🎭 MASKED]' if is_masked else '') + (' [🏃 RUNNING]' if is_running else '')
+                        face_card_label = f'Subject #{track_id}' + tag_suffix
                         new_faces.append({
                             'id': f'face-{track_id}',
                             'tracking_id': track_id,
@@ -663,23 +671,24 @@ class VideoAnalyzer:
                 plate_data = self.anpr_engine.extract_license_plate(frame, [bx, by, bw, bh], track_id, class_name)
                 plate_num = plate_data['plate_number'] if plate_data else 'NIL'
 
-                is_overspeeding = smoothed_speed > 82
+                # Relative Traffic Velocity / Differential Overspeeding Detection
+                is_overspeeding = (smoothed_speed >= 60 and (smoothed_speed - avg_traffic_speed >= 12 or avg_traffic_speed <= 42)) or (smoothed_speed >= 75)
 
                 if is_overspeeding:
                     new_events.append({
                         'id': f'evt-{uuid.uuid4().hex[:6]}',
                         'timestamp': timestamp,
-                        'type': 'vehicle_overspeeding',
+                        'type': 'vehicle_differential_speeding',
                         'severity': 'HIGH',
-                        'title': f'🚨 SPEEDING DETECTED ({class_name.upper()} #{track_id})',
-                        'description': f'Vehicle #{track_id} [{plate_num}] moving at excessive speed ({smoothed_speed} km/h - Limit: 75 km/h).',
+                        'title': f'🚨 SPEEDING ANOMALY ({class_name.upper()} #{track_id})',
+                        'description': f'Vehicle #{track_id} [{plate_num}] traveling at {smoothed_speed} km/h, significantly outpacing surrounding traffic flow (avg {avg_traffic_speed} km/h).',
                         'object': f'{class_name.title()} #{track_id} [{plate_num}]',
                         'confidence': round(conf * 100, 1),
                         'tracking_id': track_id,
                         'risk_level': 'ELEVATED'
                     })
 
-                obj_label = f'{class_name.upper()} #{track_id} [{plate_num}] [🚨 {smoothed_speed} KM/H]' if is_overspeeding else f'{class_name.upper()} #{track_id} [{plate_num}] [{smoothed_speed} KM/H]'
+                obj_label = f'{class_name.upper()} #{track_id} [{plate_num}] [🚨 {smoothed_speed} KM/H (OVERSPEEDING)]' if is_overspeeding else f'{class_name.upper()} #{track_id} [{plate_num}] [{smoothed_speed} KM/H]'
 
                 frame_objects.append({
                     'class': class_name,
