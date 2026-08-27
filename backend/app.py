@@ -287,7 +287,7 @@ def detect_live_frame(req: LiveFrameRequest):
                 closest = min(frames, key=lambda x: abs(x.get("timestamp", 0) - req.timestamp))
                 if abs(closest.get("timestamp", 0) - req.timestamp) < 1.0:
                     # Dynamically re-evaluate zone intrusion on custom zone
-                    boundary_check = req.enable_boundary_check if req.enable_boundary_check is not None else True
+                    boundary_check = req.enable_boundary_check if req.enable_boundary_check is not None else False
                     custom_zone = req.restricted_zone or cached_data.get("restricted_zone", [[0.25, 0.25], [0.75, 0.25], [0.75, 0.75], [0.25, 0.75]])
                     
                     frame_objs = []
@@ -346,7 +346,7 @@ def detect_live_frame(req: LiveFrameRequest):
         frame=frame,
         timestamp=req.timestamp,
         restricted_zone=req.restricted_zone,
-        enable_boundary_check=req.enable_boundary_check if req.enable_boundary_check is not None else True,
+        enable_boundary_check=req.enable_boundary_check if req.enable_boundary_check is not None else False,
         sample_id=req.sample_id or ""
     )
     return res
@@ -363,7 +363,7 @@ def reset_backend_state():
 async def detect_live_image(
     file: UploadFile = File(...),
     timestamp: float = Query(0.0),
-    enable_boundary_check: bool = Query(True),
+    enable_boundary_check: bool = Query(False),
     restricted_zone_json: Optional[str] = Query(None)
 ):
     """

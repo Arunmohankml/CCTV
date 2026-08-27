@@ -1,8 +1,7 @@
 import React from "react";
-import { Shield, Upload, Volume2, VolumeX, Crosshair, Radio, Activity } from "lucide-react";
+import { Shield, Volume2, VolumeX, Crosshair, Activity } from "lucide-react";
 
 export default function Header({
-  onOpenUpload,
   onOpenZoneEditor,
   muted,
   onToggleMute,
@@ -60,7 +59,7 @@ export default function Header({
           onClick={onToggleBoundaryCheck}
           className={`flex items-center gap-2.5 px-5 py-2.5 rounded-2xl border text-xs font-semibold transition-all shadow-sm ${
             enableBoundaryCheck
-              ? "bg-zinc-800 text-zinc-100 border-zinc-600"
+              ? "bg-zinc-800 text-zinc-100 border-zinc-500 shadow-sm"
               : "bg-zinc-900/60 border-zinc-800 text-zinc-500 hover:text-zinc-300"
           }`}
           title="Toggle restricted boundary breach checks"
@@ -80,15 +79,6 @@ export default function Header({
           title={muted ? "Unmute Alarm Sounds (Shortcut: M)" : "Mute Alarm Sounds (Shortcut: M)"}
         >
           {muted ? <VolumeX className="w-4 h-4 text-zinc-500" /> : <Volume2 className="w-4 h-4 text-zinc-200" />}
-        </button>
-
-        {/* Upload Video Button */}
-        <button
-          onClick={onOpenUpload}
-          className="flex items-center gap-2.5 px-5 py-2.5 rounded-2xl bg-zinc-100 hover:bg-white text-zinc-950 font-bold text-xs shadow-lg transition-all border border-zinc-200"
-        >
-          <Upload className="w-4 h-4 text-zinc-900" />
-          <span>Upload CCTV</span>
         </button>
       </div>
     </header>

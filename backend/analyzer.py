@@ -599,7 +599,7 @@ class VideoAnalyzer:
                         'timestamp': timestamp,
                         'type': 'suspicious_mask_detected',
                         'severity': 'MEDIUM',
-                        'title': f'🎭 SUSPICIOUS: MASKED INDIVIDUAL (Person #{track_id})',
+                        'title': f'SUSPICIOUS: MASKED INDIVIDUAL (Person #{track_id})',
                         'description': f'Subject #{track_id} is wearing a face mask / balaclava concealing facial identity in a monitored area.',
                         'object': f'Person #{track_id}',
                         'confidence': round(mask_conf, 1),
@@ -613,7 +613,7 @@ class VideoAnalyzer:
                         'timestamp': timestamp,
                         'type': 'suspicious_running_detected',
                         'severity': 'HIGH',
-                        'title': f'🏃 SUSPICIOUS: SPRINTING / RUNNING (Person #{track_id})',
+                        'title': f'SUSPICIOUS: SPRINTING / RUNNING (Person #{track_id})',
                         'description': f'Subject #{track_id} is running / fleeing rapidly across surveillance area ({smoothed_speed} km/h) - flagged as suspicious behavior.',
                         'object': f'Person #{track_id}',
                         'confidence': round(conf * 100, 1),
@@ -622,11 +622,11 @@ class VideoAnalyzer:
                     })
 
                 if is_masked and is_running:
-                    obj_label = f'PERSON #{track_id} [🎭 MASKED] [🏃 RUNNING / SUSPICIOUS]'
+                    obj_label = f'PERSON #{track_id} [MASKED] [RUNNING / SUSPICIOUS]'
                 elif is_masked:
-                    obj_label = f'PERSON #{track_id} [🎭 MASKED / SUSPICIOUS]'
+                    obj_label = f'PERSON #{track_id} [MASKED / SUSPICIOUS]'
                 elif is_running:
-                    obj_label = f'PERSON #{track_id} [🏃 RUNNING / SUSPICIOUS]'
+                    obj_label = f'PERSON #{track_id} [RUNNING / SUSPICIOUS]'
                 else:
                     obj_label = f'PERSON #{track_id}'
 
@@ -672,23 +672,25 @@ class VideoAnalyzer:
                 plate_num = plate_data['plate_number'] if plate_data else 'NIL'
 
                 # Relative Traffic Velocity / Differential Overspeeding Detection
-                is_overspeeding = (smoothed_speed >= 60 and (smoothed_speed - avg_traffic_speed >= 12 or avg_traffic_speed <= 42)) or (smoothed_speed >= 75)
+                is_overspeeding = (smoothed_speed >= 60) or (smoothed_speed - avg_traffic_speed >= 10)
 
                 if is_overspeeding:
+                    plate_str = f" [{plate_num}]" if plate_num != 'NIL' else ""
                     new_events.append({
                         'id': f'evt-{uuid.uuid4().hex[:6]}',
                         'timestamp': timestamp,
                         'type': 'vehicle_differential_speeding',
                         'severity': 'HIGH',
-                        'title': f'🚨 SPEEDING ANOMALY ({class_name.upper()} #{track_id})',
-                        'description': f'Vehicle #{track_id} [{plate_num}] traveling at {smoothed_speed} km/h, significantly outpacing surrounding traffic flow (avg {avg_traffic_speed} km/h).',
-                        'object': f'{class_name.title()} #{track_id} [{plate_num}]',
+                        'title': f'SPEEDING ANOMALY: {class_name.upper()} #{track_id}{plate_str} ({smoothed_speed} KM/H)',
+                        'description': f'Vehicle #{track_id}{plate_str} is traveling at excessive velocity ({smoothed_speed} km/h - Flow Limit: 50 km/h).',
+                        'object': f'{class_name.title()} #{track_id}{plate_str}',
                         'confidence': round(conf * 100, 1),
                         'tracking_id': track_id,
                         'risk_level': 'ELEVATED'
                     })
 
-                obj_label = f'{class_name.upper()} #{track_id} [{plate_num}] [🚨 {smoothed_speed} KM/H (OVERSPEEDING)]' if is_overspeeding else f'{class_name.upper()} #{track_id} [{plate_num}] [{smoothed_speed} KM/H]'
+                plate_tag = f" [{plate_num}]" if plate_num != 'NIL' else ""
+                obj_label = f'{class_name.upper()} #{track_id}{plate_tag} [{smoothed_speed} KM/H (OVERSPEEDING)]' if is_overspeeding else f'{class_name.upper()} #{track_id}{plate_tag} [{smoothed_speed} KM/H]'
 
                 frame_objects.append({
                     'class': class_name,

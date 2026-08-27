@@ -1,17 +1,14 @@
 import React, { useState, useEffect, useRef } from "react";
 import Header from "./components/Header";
 import VideoSelectorBar from "./components/VideoSelectorBar";
-import UploadModal from "./components/UploadModal";
 import VideoPlayer from "./components/VideoPlayer";
 import AlertFeed from "./components/AlertFeed";
 import StatsGrid from "./components/StatsGrid";
 import ANPRRegistry from "./components/ANPRRegistry";
-import EvidenceAuditLog from "./components/EvidenceAuditLog";
 import FaceGallery from "./components/FaceGallery";
-import EventHistory from "./components/EventHistory";
 import ZoneEditorModal from "./components/ZoneEditorModal";
 import { playSecurityAlarm } from "./utils/audioAlert";
-import { Bell, Car, FileText, UserCheck } from "lucide-react";
+import { Bell, Car, UserCheck } from "lucide-react";
 
 const API_BASE = "http://localhost:8000/api";
 
@@ -48,12 +45,9 @@ export default function App() {
   const [isPlaying, setIsPlaying] = useState(true);
   const [muted, setMuted] = useState(false);
   const [customZone, setCustomZone] = useState(null);
-  const [enableBoundaryCheck, setEnableBoundaryCheck] = useState(true);
+  const [enableBoundaryCheck, setEnableBoundaryCheck] = useState(false);
   const [isDrawingZone, setIsDrawingZone] = useState(false);
   const [rightPanelTab, setRightPanelTab] = useState("ALERTS");
-  const [error, setError] = useState(null);
-
-  const [showUploadModal, setShowUploadModal] = useState(false);
   const [showZoneModal, setShowZoneModal] = useState(false);
 
   // Load sample videos on startup
@@ -71,23 +65,11 @@ export default function App() {
         }
       })
       .catch((err) => {
-        console.error("Failed to load sample feeds:", err);
+        console.error("Error loading sample feeds:", err);
       });
   }, []);
 
   const resetLiveDetectionState = () => {
-    trackedPeopleRef.current.clear();
-    trackedVehiclesRef.current.clear();
-    trackedObjectsRef.current.clear();
-    trackedPlatesRef.current.clear();
-    trackedFacesRef.current.clear();
-    triggeredEventsRef.current.clear();
-    lastProcessedTimeRef.current = -1;
-    isDetectingRef.current = false;
-    
-    // Reset backend tracking history and queues
-    fetch(`${API_BASE}/reset_state`, { method: "POST" }).catch(() => {});
-
     setLiveFrameData(null);
     setLivePlates([]);
     setLiveEvents([]);
@@ -100,28 +82,36 @@ export default function App() {
       intrusion_count: 0,
       total_alerts: 0
     });
-    setCurrentTime(0);
-    setIsPlaying(true);
+    trackedPeopleRef.current.clear();
+    trackedVehiclesRef.current.clear();
+    trackedObjectsRef.current.clear();
+    trackedPlatesRef.current.clear();
+    trackedFacesRef.current.clear();
+    triggeredEventsRef.current.clear();
+    lastProcessedTimeRef.current = -1;
+
+    fetch(`${API_BASE}/reset_state`, { method: "POST" }).catch(() => {});
   };
 
-  // Real-time live frame detection hook as video plays
+  // High-frequency live frame AI detection loop
   useEffect(() => {
     if (!activeVideoId) return;
 
-    const timeDiff = Math.abs(currentTime - lastProcessedTimeRef.current);
-    if (timeDiff < 0.06 || isDetectingRef.current) return;
+    // Minimum throttle 0.08s between AI detections
+    if (Math.abs(currentTime - lastProcessedTimeRef.current) < 0.08) return;
+    if (isDetectingRef.current) return;
 
-    isDetectingRef.current = true;
     lastProcessedTimeRef.current = currentTime;
+    isDetectingRef.current = true;
 
     fetch(`${API_BASE}/detect_live_frame`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        sample_id: activeVideoId,
         timestamp: currentTime,
-        restricted_zone: customZone,
-        enable_boundary_check: enableBoundaryCheck
+        sample_id: activeVideoId,
+        enable_boundary_check: enableBoundaryCheck,
+        restricted_zone: customZone
       })
     })
       .then((res) => res.json())
@@ -129,14 +119,10 @@ export default function App() {
         isDetectingRef.current = false;
         if (!data || !data.objects) return;
 
-        // 1. Set current frame bounding boxes
-        setLiveFrameData({
-          timestamp: data.timestamp,
-          objects: data.objects,
-          has_intrusion: data.has_intrusion
-        });
+        // 1. Update live SVG overlay frame bounding boxes
+        setLiveFrameData(data);
 
-        // 2. Dynamically count people, vehicles, and objects seen
+        // 2. Track unique objects across scene
         data.objects.forEach((obj) => {
           if (obj.class === "person") {
             trackedPeopleRef.current.add(obj.tracking_id);
@@ -177,6 +163,8 @@ export default function App() {
                 existing.timestamp = face.timestamp;
                 existing.occurrences = (existing.occurrences || 1) + 1;
                 if (face.in_restricted_zone) existing.in_restricted_zone = true;
+                if (face.is_masked) existing.is_masked = true;
+                if (face.is_running) existing.is_running = true;
                 if (face.image_url && (!existing.image_url || face.confidence >= existing.confidence)) {
                   existing.image_url = face.image_url;
                   existing.confidence = face.confidence;
@@ -187,9 +175,13 @@ export default function App() {
           });
         }
 
-        // 5. Dynamically append new events and trigger alarm
-        if (data.new_events && data.new_events.length > 0 && enableBoundaryCheck) {
+        // 5. Dynamically append new events (speeding, running, masked, zone intrusions) and trigger alarm
+        if (data.new_events && data.new_events.length > 0) {
           const freshEvents = data.new_events.filter((e) => {
+            // Zone breach only alerts when boundary radar is ON
+            if (e.type === "restricted_zone_intrusion" && !enableBoundaryCheck) {
+              return false;
+            }
             const key = `${e.title}-${Math.floor(currentTime / 2)}`;
             if (!triggeredEventsRef.current.has(key)) {
               triggeredEventsRef.current.add(key);
@@ -210,8 +202,8 @@ export default function App() {
           vehicle_count: trackedVehiclesRef.current.size,
           objects_count: trackedObjectsRef.current.size,
           plates_scanned_count: trackedPlatesRef.current.size,
-          intrusion_count: data.has_intrusion ? Math.max(prev.intrusion_count, prev.intrusion_count + 1) : prev.intrusion_count,
-          total_alerts: triggeredEventsRef.current.size + (data.has_intrusion ? 1 : 0)
+          intrusion_count: (data.has_intrusion && enableBoundaryCheck) ? Math.max(prev.intrusion_count, prev.intrusion_count + 1) : prev.intrusion_count,
+          total_alerts: triggeredEventsRef.current.size + ((data.has_intrusion && enableBoundaryCheck) ? 1 : 0)
         }));
       })
       .catch(() => {
@@ -225,32 +217,6 @@ export default function App() {
     setActiveVideoTitle(s ? s.title : sampleId);
     setActiveVideoUrl(`${API_BASE}/video/${sampleId}`);
     resetLiveDetectionState();
-  };
-
-  const handleUploadFile = (file) => {
-    setError(null);
-    const formData = new FormData();
-    formData.append("file", file);
-
-    fetch(`${API_BASE}/upload`, {
-      method: "POST",
-      body: formData
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.video_id) {
-          setActiveVideoId(data.video_id);
-          setActiveVideoTitle(file.name);
-          setActiveVideoUrl(`${API_BASE}/video/${data.video_id}`);
-          setShowUploadModal(false);
-          resetLiveDetectionState();
-        } else {
-          setError(data.detail || "Upload failed.");
-        }
-      })
-      .catch(() => {
-        setError("File upload failed.");
-      });
   };
 
   const handleSaveZone = (newZone) => {
@@ -271,7 +237,6 @@ export default function App() {
 
   const handleNextAlert = () => {
     if (liveEvents.length > 0) {
-      // Sort events chronologically
       const sorted = [...liveEvents].sort((a, b) => a.timestamp - b.timestamp);
       const next = sorted.find((e) => e.timestamp > currentTime + 0.3);
       if (next) {
@@ -279,13 +244,11 @@ export default function App() {
         return;
       }
     }
-    // Fallback: Skip forward 5s
     setCurrentTime((t) => Math.min(t + 5.0, 9999));
   };
 
   const handlePrevAlert = () => {
     if (liveEvents.length > 0) {
-      // Sort events chronologically
       const sorted = [...liveEvents].sort((a, b) => a.timestamp - b.timestamp);
       const prevList = sorted.filter((e) => e.timestamp < currentTime - 0.3);
       if (prevList.length > 0) {
@@ -293,14 +256,12 @@ export default function App() {
         return;
       }
     }
-    // Fallback: Skip back 5s
     setCurrentTime((t) => Math.max(0, t - 5.0));
   };
 
   return (
     <div className="min-h-screen p-4 md:p-6 max-w-[1750px] mx-auto space-y-5">
       <Header
-        onOpenUpload={() => setShowUploadModal(true)}
         onOpenZoneEditor={() => setShowZoneModal(true)}
         muted={muted}
         onToggleMute={() => setMuted(!muted)}
@@ -319,7 +280,7 @@ export default function App() {
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-        {/* Main Video & KPIs (7 cols on lg screens) */}
+        {/* Main Video & KPIs */}
         <div className="lg:col-span-7 space-y-4">
           <VideoPlayer
             videoUrl={activeVideoUrl}
@@ -344,7 +305,7 @@ export default function App() {
           <StatsGrid statistics={liveStats} />
         </div>
 
-        {/* Right Dynamic Hub (5 cols on lg screens) */}
+        {/* Right Dynamic Hub */}
         <div className="lg:col-span-5 flex flex-col space-y-3">
           {/* Minimal Tab Switcher */}
           <div className="flex items-center gap-2 p-2 bg-zinc-900/90 rounded-3xl border border-zinc-800 backdrop-blur-2xl shadow-xl">
@@ -392,18 +353,6 @@ export default function App() {
                 {liveFaces.length}
               </span>
             </button>
-
-            <button
-              onClick={() => setRightPanelTab("EVIDENCE")}
-              className={`flex-1 py-3 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
-                rightPanelTab === "EVIDENCE"
-                  ? "bg-zinc-800 border border-zinc-600 text-white shadow-lg"
-                  : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850"
-              }`}
-            >
-              <FileText className="w-3.5 h-3.5 text-zinc-300" />
-              <span>LOGS</span>
-            </button>
           </div>
 
           {/* Tab Panel Views */}
@@ -431,27 +380,8 @@ export default function App() {
               onClearFaces={() => setLiveFaces([])}
             />
           )}
-
-          {rightPanelTab === "EVIDENCE" && (
-            <EvidenceAuditLog
-              events={liveEvents}
-              currentTime={currentTime}
-              onSeekToTimestamp={handleSeekToTimestamp}
-              videoTitle={activeVideoTitle}
-            />
-          )}
         </div>
       </div>
-
-      {/* Modals */}
-      {showUploadModal && (
-        <UploadModal
-          isOpen={showUploadModal}
-          onClose={() => setShowUploadModal(false)}
-          onUpload={handleUploadFile}
-          error={error}
-        />
-      )}
 
       {showZoneModal && (
         <ZoneEditorModal
