@@ -1,20 +1,17 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 :root {
-  --bg-dark: #090d16;
-  --bg-card: rgba(15, 23, 42, 0.75);
-  --bg-card-hover: rgba(30, 41, 59, 0.85);
-  --border-color: rgba(51, 65, 85, 0.5);
-  --border-accent: rgba(99, 102, 241, 0.4);
+  --bg-dark: #09090b;
+  --bg-card: rgba(18, 18, 22, 0.85);
+  --bg-card-hover: rgba(28, 28, 34, 0.95);
+  --border-color: rgba(39, 39, 42, 0.7);
+  --border-accent: rgba(113, 113, 122, 0.4);
   
-  --primary: #6366f1;
-  --primary-hover: #4f46e5;
-  --emerald: #10b981;
-  --amber: #f59e0b;
-  --crimson: #ef4444;
-  --text-main: #f8fafc;
-  --text-muted: #94a3b8;
-  --text-dim: #64748b;
+  --primary: #e4e4e7;
+  --primary-hover: #ffffff;
+  --text-main: #f4f4f5;
+  --text-muted: #a1a1aa;
+  --text-dim: #71717a;
   
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   color-scheme: dark;
@@ -33,24 +30,24 @@ body {
   overflow-x: hidden;
   font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
   background-image: 
-    radial-gradient(circle at 20% 10%, rgba(99, 102, 241, 0.05) 0%, transparent 50%),
-    radial-gradient(circle at 80% 90%, rgba(59, 130, 246, 0.04) 0%, transparent 50%);
+    radial-gradient(circle at 15% 15%, rgba(39, 39, 42, 0.25) 0%, transparent 45%),
+    radial-gradient(circle at 85% 85%, rgba(24, 24, 27, 0.4) 0%, transparent 50%);
 }
 
 /* Custom Scrollbars */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #334155;
+  background: #27272a;
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+  background: #3f3f46;
 }
 
 .no-scrollbar::-webkit-scrollbar {
@@ -66,48 +63,48 @@ body {
   font-family: 'JetBrains Mono', monospace;
 }
 
-/* Professional Glass Card */
+/* Minimalist Dark Panels */
 .glass-panel {
   background: var(--bg-card);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border: 1px solid var(--border-color);
   border-radius: 1.5rem;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 12px 30px -10px rgba(0, 0, 0, 0.5);
 }
 
 .glass-panel-interactive {
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .glass-panel-interactive:hover {
-  border-color: rgba(99, 102, 241, 0.4);
+  border-color: rgba(82, 82, 91, 0.8);
   background: var(--bg-card-hover);
-  box-shadow: 0 14px 28px -4px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 16px 36px -6px rgba(0, 0, 0, 0.6);
 }
 
 /* Status Badges */
 .badge-critical {
-  background: rgba(239, 68, 68, 0.12);
-  color: #fca5a5;
+  background: rgba(239, 68, 68, 0.1);
+  color: #f87171;
   border: 1px solid rgba(239, 68, 68, 0.25);
 }
 .badge-high {
-  background: rgba(245, 158, 11, 0.12);
-  color: #fcd34d;
+  background: rgba(245, 158, 11, 0.1);
+  color: #fbbf24;
   border: 1px solid rgba(245, 158, 11, 0.25);
 }
 .badge-medium {
-  background: rgba(234, 179, 8, 0.12);
-  color: #fde047;
-  border: 1px solid rgba(234, 179, 8, 0.2);
+  background: rgba(168, 85, 247, 0.1);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.25);
 }
 .badge-info {
-  background: rgba(16, 185, 129, 0.12);
-  color: #6ee7b7;
-  border: 1px solid rgba(16, 185, 129, 0.25);
+  background: rgba(113, 113, 122, 0.15);
+  color: #d4d4d8;
+  border: 1px solid rgba(113, 113, 122, 0.3);
 }
 
-/* Bounding box animation */
+/* Smooth motion for bounding box tags */
 .box-enter {
   transition: all 0.08s ease-out;
 }

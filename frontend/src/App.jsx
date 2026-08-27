@@ -271,24 +271,34 @@ export default function App() {
 
   const handleNextAlert = () => {
     if (liveEvents.length > 0) {
-      const futureEvents = liveEvents.filter((e) => e.timestamp > currentTime + 0.5);
-      if (futureEvents.length > 0) {
-        setCurrentTime(futureEvents[0].timestamp);
+      // Sort events chronologically
+      const sorted = [...liveEvents].sort((a, b) => a.timestamp - b.timestamp);
+      const next = sorted.find((e) => e.timestamp > currentTime + 0.3);
+      if (next) {
+        setCurrentTime(next.timestamp);
+        return;
       }
     }
+    // Fallback: Skip forward 5s
+    setCurrentTime((t) => Math.min(t + 5.0, 9999));
   };
 
   const handlePrevAlert = () => {
     if (liveEvents.length > 0) {
-      const pastEvents = liveEvents.filter((e) => e.timestamp < currentTime - 0.5);
-      if (pastEvents.length > 0) {
-        setCurrentTime(pastEvents[pastEvents.length - 1].timestamp);
+      // Sort events chronologically
+      const sorted = [...liveEvents].sort((a, b) => a.timestamp - b.timestamp);
+      const prevList = sorted.filter((e) => e.timestamp < currentTime - 0.3);
+      if (prevList.length > 0) {
+        setCurrentTime(prevList[prevList.length - 1].timestamp);
+        return;
       }
     }
+    // Fallback: Skip back 5s
+    setCurrentTime((t) => Math.max(0, t - 5.0));
   };
 
   return (
-    <div className="min-h-screen p-4 md:p-6 max-w-[1700px] mx-auto space-y-5">
+    <div className="min-h-screen p-4 md:p-6 max-w-[1750px] mx-auto space-y-5">
       <Header
         onOpenUpload={() => setShowUploadModal(true)}
         onOpenZoneEditor={() => setShowZoneModal(true)}
@@ -327,6 +337,8 @@ export default function App() {
             isDrawingZone={isDrawingZone}
             onToggleDrawZone={() => setIsDrawingZone(!isDrawingZone)}
             onSaveDrawnZone={handleSaveZone}
+            muted={muted}
+            onToggleMute={() => setMuted(!muted)}
           />
 
           <StatsGrid statistics={liveStats} />
@@ -335,66 +347,66 @@ export default function App() {
         {/* Right Dynamic Hub (5 cols on lg screens) */}
         <div className="lg:col-span-5 flex flex-col space-y-3">
           {/* Minimal Tab Switcher */}
-          <div className="flex items-center gap-1.5 p-1.5 bg-slate-900/90 rounded-2xl border border-slate-800/80 backdrop-blur-xl shadow-lg">
+          <div className="flex items-center gap-2 p-2 bg-zinc-900/90 rounded-3xl border border-zinc-800 backdrop-blur-2xl shadow-xl">
             <button
               onClick={() => setRightPanelTab("ALERTS")}
-              className={`flex-1 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+              className={`flex-1 py-3 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
                 rightPanelTab === "ALERTS"
-                  ? "bg-slate-800 border border-rose-500/60 text-rose-300 shadow-md"
-                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
+                  ? "bg-zinc-800 border border-zinc-600 text-white shadow-lg"
+                  : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850"
               }`}
             >
-              <Bell className="w-3.5 h-3.5 text-rose-400" />
-              <span>ALERTS</span>
-              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-rose-500/10 text-rose-300 border border-rose-500/20">
+              <Bell className="w-3.5 h-3.5 text-zinc-300" />
+              <span>INCIDENTS</span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-950 text-zinc-300 border border-zinc-800 font-mono">
                 {liveEvents.length}
               </span>
             </button>
 
             <button
               onClick={() => setRightPanelTab("ANPR")}
-              className={`flex-1 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+              className={`flex-1 py-3 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
                 rightPanelTab === "ANPR"
-                  ? "bg-slate-800 border border-emerald-500/60 text-emerald-300 shadow-md"
-                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
+                  ? "bg-zinc-800 border border-zinc-600 text-white shadow-lg"
+                  : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850"
               }`}
             >
-              <Car className="w-3.5 h-3.5 text-emerald-400" />
+              <Car className="w-3.5 h-3.5 text-zinc-300" />
               <span>ANPR</span>
-              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-950 text-zinc-300 border border-zinc-800 font-mono">
                 {livePlates.length}
               </span>
             </button>
 
             <button
-              onClick={() => setRightPanelTab("EVIDENCE")}
-              className={`flex-1 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
-                rightPanelTab === "EVIDENCE"
-                  ? "bg-slate-800 border border-indigo-500/60 text-indigo-300 shadow-md"
-                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
-              }`}
-            >
-              <FileText className="w-3.5 h-3.5 text-indigo-400" />
-              <span>EVIDENCE</span>
-            </button>
-
-            <button
               onClick={() => setRightPanelTab("FACES")}
-              className={`flex-1 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+              className={`flex-1 py-3 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
                 rightPanelTab === "FACES"
-                  ? "bg-slate-800 border border-sky-500/60 text-sky-300 shadow-md"
-                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
+                  ? "bg-zinc-800 border border-zinc-600 text-white shadow-lg"
+                  : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850"
               }`}
             >
-              <UserCheck className="w-3.5 h-3.5 text-sky-400" />
+              <UserCheck className="w-3.5 h-3.5 text-zinc-300" />
               <span>FACES</span>
-              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-sky-500/10 text-sky-300 border border-sky-500/20">
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-950 text-zinc-300 border border-zinc-800 font-mono">
                 {liveFaces.length}
               </span>
             </button>
+
+            <button
+              onClick={() => setRightPanelTab("EVIDENCE")}
+              className={`flex-1 py-3 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+                rightPanelTab === "EVIDENCE"
+                  ? "bg-zinc-800 border border-zinc-600 text-white shadow-lg"
+                  : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850"
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5 text-zinc-300" />
+              <span>LOGS</span>
+            </button>
           </div>
 
-          {/* Active Expandable Tab View */}
+          {/* Tab Panel Views */}
           {rightPanelTab === "ALERTS" && (
             <AlertFeed
               events={liveEvents}
@@ -411,6 +423,15 @@ export default function App() {
             />
           )}
 
+          {rightPanelTab === "FACES" && (
+            <FaceGallery
+              faces={liveFaces}
+              currentTime={currentTime}
+              onSeekToTimestamp={handleSeekToTimestamp}
+              onClearFaces={() => setLiveFaces([])}
+            />
+          )}
+
           {rightPanelTab === "EVIDENCE" && (
             <EvidenceAuditLog
               events={liveEvents}
@@ -419,37 +440,27 @@ export default function App() {
               videoTitle={activeVideoTitle}
             />
           )}
-
-          {rightPanelTab === "FACES" && (
-            <FaceGallery
-              faces={liveFaces}
-              currentTime={currentTime}
-              onSeekToTimestamp={handleSeekToTimestamp}
-              onClearFaces={() => {
-                setLiveFaces([]);
-                trackedFacesRef.current.clear();
-              }}
-            />
-          )}
         </div>
       </div>
 
-      <UploadModal
-        isOpen={showUploadModal}
-        onClose={() => setShowUploadModal(false)}
-        samples={samples}
-        onSelectSample={handleSelectSample}
-        onUploadFile={handleUploadFile}
-        isProcessing={false}
-        error={error}
-      />
+      {/* Modals */}
+      {showUploadModal && (
+        <UploadModal
+          isOpen={showUploadModal}
+          onClose={() => setShowUploadModal(false)}
+          onUpload={handleUploadFile}
+          error={error}
+        />
+      )}
 
-      <ZoneEditorModal
-        isOpen={showZoneModal}
-        onClose={() => setShowZoneModal(false)}
-        currentZone={customZone}
-        onSaveZone={handleSaveZone}
-      />
+      {showZoneModal && (
+        <ZoneEditorModal
+          isOpen={showZoneModal}
+          onClose={() => setShowZoneModal(false)}
+          onSaveZone={handleSaveZone}
+          currentZone={customZone}
+        />
+      )}
     </div>
   );
 }

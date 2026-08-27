@@ -26,29 +26,29 @@ export default function ZoneEditorModal({ isOpen, onClose, currentZone, onSaveZo
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
-      <div className="glass-panel w-full max-w-lg p-6 space-y-5 border-cyan-800/60 shadow-2xl relative">
-        <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-          <div className="flex items-center gap-2">
-            <Crosshair className="w-5 h-5 text-cyan-400" />
-            <h2 className="text-sm font-bold text-slate-100 uppercase tracking-wider">
-              Configure Restricted Security Zone
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
+      <div className="w-full max-w-lg p-7 space-y-6 bg-zinc-900 border border-zinc-800 rounded-3xl shadow-2xl relative">
+        <div className="flex items-center justify-between pb-4 border-b border-zinc-800">
+          <div className="flex items-center gap-2.5">
+            <Crosshair className="w-5 h-5 text-zinc-300" />
+            <h2 className="text-xs font-bold text-white uppercase tracking-wider">
+              Security Boundary Zones
             </h2>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-all"
+            className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-all"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        <p className="text-xs text-slate-400 leading-relaxed">
-          Select a surveillance zone preset. When objects cross the boundary, the AI engine will immediately log a <strong>CRITICAL RESTRICTED ZONE INTRUSION</strong> alert and sound the security alarm.
+        <p className="text-xs text-zinc-400 leading-relaxed">
+          Select a surveillance zone preset. When targets cross the boundary, the AI engine will immediately log an intrusion alert.
         </p>
 
         {/* Presets List */}
-        <div className="space-y-2">
+        <div className="space-y-2.5">
           {ZONE_PRESETS.map((preset, idx) => {
             const isSelected = JSON.stringify(preset.coords) === JSON.stringify(selectedZone);
 
@@ -56,37 +56,37 @@ export default function ZoneEditorModal({ isOpen, onClose, currentZone, onSaveZo
               <button
                 key={idx}
                 onClick={() => setSelectedZone(preset.coords)}
-                className={`w-full p-3 rounded-lg border text-left flex items-center justify-between transition-all ${
+                className={`w-full p-4 rounded-2xl border text-left flex items-center justify-between transition-all ${
                   isSelected
-                    ? "bg-cyan-950/70 border-cyan-500 text-cyan-300"
-                    : "bg-slate-900/60 border-slate-800 text-slate-300 hover:bg-slate-850"
+                    ? "bg-zinc-800 border-zinc-500 text-white shadow-md"
+                    : "bg-zinc-950/80 border-zinc-800 text-zinc-300 hover:bg-zinc-850 hover:border-zinc-700"
                 }`}
               >
                 <div>
                   <p className="text-xs font-bold">{preset.name}</p>
-                  <p className="text-[10px] font-mono text-slate-500 mt-0.5">
-                    Polygon Coords: [{preset.coords.map(c => `(${c[0]},${c[1]})`).join(", ")}]
+                  <p className="text-[10px] font-mono text-zinc-500 mt-0.5">
+                    Boundary: [{preset.coords.map(c => `(${c[0]},${c[1]})`).join(", ")}]
                   </p>
                 </div>
-                {isSelected && <Check className="w-4 h-4 text-cyan-400" />}
+                {isSelected && <Check className="w-4 h-4 text-white" />}
               </button>
             );
           })}
         </div>
 
         {/* Action Buttons */}
-        <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+        <div className="flex items-center justify-end gap-3 pt-4 border-t border-zinc-800">
           <button
             onClick={onClose}
-            className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition-all"
+            className="px-5 py-2.5 rounded-2xl bg-zinc-800 hover:bg-zinc-750 text-zinc-300 text-xs font-semibold transition-all border border-zinc-700"
           >
             Cancel
           </button>
           <button
             onClick={() => onSaveZone(selectedZone)}
-            className="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-medium shadow-lg shadow-cyan-900/30 transition-all border border-cyan-400/30"
+            className="px-5 py-2.5 rounded-2xl bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-bold shadow-lg transition-all"
           >
-            Apply & Re-analyze Video
+            Apply Boundary
           </button>
         </div>
       </div>

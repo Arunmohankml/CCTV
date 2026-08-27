@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useMemo } from "react";
-import { Play, Pause, RotateCcw, SkipBack, SkipForward, Maximize, ShieldAlert, FastForward, Crosshair, Check, Undo, Trash2, X, Save, Shield } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, Maximize, ShieldAlert, Crosshair, Check, Undo, Trash2, X, Save } from "lucide-react";
 
 export default function VideoPlayer({
   videoUrl,
@@ -16,7 +16,9 @@ export default function VideoPlayer({
   enableBoundaryCheck = true,
   isDrawingZone = false,
   onToggleDrawZone,
-  onSaveDrawnZone
+  onSaveDrawnZone,
+  muted = false,
+  onToggleMute
 }) {
   const videoRef = useRef(null);
   const containerRef = useRef(null);
@@ -25,13 +27,46 @@ export default function VideoPlayer({
   const [drawnPoints, setDrawnPoints] = useState([]);
   const [mousePos, setMousePos] = useState(null);
 
-  // 60 FPS Motion Interpolation State
   const [smoothObjects, setSmoothObjects] = useState([]);
   const targetObjectsRef = useRef([]);
   const currentObjectsRef = useRef(new Map());
   const animFrameRef = useRef(null);
 
-  // Sync HTML5 video play/pause with state
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (["INPUT", "TEXTAREA", "SELECT"].includes(e.target.tagName)) return;
+
+      if (e.code === "Space") {
+        e.preventDefault();
+        onTogglePlay?.(!isPlaying);
+      } else if (e.code === "ArrowRight") {
+        e.preventDefault();
+        onNextAlert?.();
+      } else if (e.code === "ArrowLeft") {
+        e.preventDefault();
+        onPrevAlert?.();
+      } else if (e.key === "f" || e.key === "F") {
+        e.preventDefault();
+        if (containerRef.current) {
+          if (!document.fullscreenElement) {
+            containerRef.current.requestFullscreen?.().catch(() => {});
+          } else {
+            document.exitFullscreen?.().catch(() => {});
+          }
+        }
+      } else if (e.key === "m" || e.key === "M") {
+        e.preventDefault();
+        onToggleMute?.();
+      } else if (e.key === "z" || e.key === "Z") {
+        e.preventDefault();
+        onToggleDrawZone?.();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isPlaying, onTogglePlay, onNextAlert, onPrevAlert, onToggleMute, onToggleDrawZone]);
+
   useEffect(() => {
     if (!videoRef.current) return;
     if (isPlaying) {
@@ -41,7 +76,6 @@ export default function VideoPlayer({
     }
   }, [isPlaying]);
 
-  // Sync external seek (e.g. clicking an event item)
   useEffect(() => {
     if (!videoRef.current) return;
     if (Math.abs(videoRef.current.currentTime - currentTime) > 0.3) {
@@ -49,7 +83,6 @@ export default function VideoPlayer({
     }
   }, [currentTime]);
 
-  // Update container dimensions for SVG overlay scaling
   useEffect(() => {
     const handleResize = () => {
       if (containerRef.current) {
@@ -64,14 +97,12 @@ export default function VideoPlayer({
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // Update target objects whenever live detection updates
   useEffect(() => {
     if (liveFrameData && Array.isArray(liveFrameData.objects)) {
       targetObjectsRef.current = liveFrameData.objects;
     }
   }, [liveFrameData]);
 
-  // 60 FPS Smooth Interpolation Loop
   useEffect(() => {
     let active = true;
     const loop = () => {
@@ -91,18 +122,12 @@ export default function VideoPlayer({
         const targetH = Math.max(14, nh * containerDim.height);
 
         if (!currentMap.has(id)) {
-          const state = {
-            ...obj,
-            x: targetX,
-            y: targetY,
-            w: targetW,
-            h: targetH
-          };
+          const state = { ...obj, x: targetX, y: targetY, w: targetW, h: targetH };
           currentMap.set(id, state);
           nextObjects.push(state);
         } else {
           const curr = currentMap.get(id);
-          const lerp = 0.32; // Smooth tracking interpolation factor
+          const lerp = 0.32;
           curr.x += (targetX - curr.x) * lerp;
           curr.y += (targetY - curr.y) * lerp;
           curr.w += (targetW - curr.w) * lerp;
@@ -111,6 +136,7 @@ export default function VideoPlayer({
           curr.confidence = obj.confidence;
           curr.in_restricted_zone = obj.in_restricted_zone;
           curr.is_running = obj.is_running;
+          curr.is_masked = obj.is_masked;
           curr.is_overspeeding = obj.is_overspeeding;
           curr.speed_kmh = obj.speed_kmh;
           curr.plate_number = obj.plate_number;
@@ -119,13 +145,9 @@ export default function VideoPlayer({
         }
       });
 
-      // Remove vanished tracks
       for (const [id] of currentMap) {
-        if (!seenIds.has(id)) {
-          currentMap.delete(id);
-        }
+        if (!seenIds.has(id)) currentMap.delete(id);
       }
-
       setSmoothObjects(nextObjects);
       animFrameRef.current = requestAnimationFrame(loop);
     };
@@ -139,12 +161,9 @@ export default function VideoPlayer({
 
   const handleSpeedChange = (newSpeed) => {
     setSpeed(newSpeed);
-    if (videoRef.current) {
-      videoRef.current.playbackRate = newSpeed;
-    }
+    if (videoRef.current) videoRef.current.playbackRate = newSpeed;
   };
 
-  // Find frame bounding boxes: Live real-time frame or closest frame
   const currentFrameData = useMemo(() => {
     if (liveFrameData && Array.isArray(liveFrameData.objects)) return liveFrameData;
     if (!analysisData || !analysisData.frames) return null;
@@ -152,10 +171,7 @@ export default function VideoPlayer({
     let minDiff = Infinity;
     for (const f of analysisData.frames) {
       const diff = Math.abs(f.timestamp - currentTime);
-      if (diff < minDiff) {
-        minDiff = diff;
-        closestFrame = f;
-      }
+      if (diff < minDiff) { minDiff = diff; closestFrame = f; }
     }
     return closestFrame;
   }, [liveFrameData, analysisData, currentTime]);
@@ -174,318 +190,118 @@ export default function VideoPlayer({
   const duration = analysisData?.video_metadata?.duration || videoRef.current?.duration || 0.1;
   const hasIntrusion = currentFrameData?.has_intrusion && enableBoundaryCheck;
 
-  // Convert normalized polygon points to SVG path / polygon string
-  const zonePolygonPoints = restrictedZone
-    .map((pt) => {
-      if (!Array.isArray(pt) || pt.length < 2) return "0,0";
-      const [nx, ny] = pt;
-      return `${(nx || 0) * containerDim.width},${(ny || 0) * containerDim.height}`;
-    })
-    .join(" ");
+  const zonePolygonPoints = restrictedZone.map((pt) => {
+    const px = pt[0] * containerDim.width;
+    const py = pt[1] * containerDim.height;
+    return `${px},${py}`;
+  }).join(" ");
 
-  // Handle interactive clicks on the video to add polygon points
-  const handleContainerClick = (e) => {
-    if (!isDrawingZone || !containerRef.current) return;
+  const handleSvgClick = (e) => {
+    if (!isDrawingZone) return;
     const rect = containerRef.current.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const clickY = e.clientY - rect.top;
-    const nx = Math.max(0, Math.min(1, parseFloat((clickX / rect.width).toFixed(4))));
-    const ny = Math.max(0, Math.min(1, parseFloat((clickY / rect.height).toFixed(4))));
-
+    const nx = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const ny = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
     setDrawnPoints((prev) => [...prev, [nx, ny]]);
   };
 
-  const handleContainerMouseMove = (e) => {
-    if (!isDrawingZone || !containerRef.current) return;
+  const handleMouseMove = (e) => {
+    if (!isDrawingZone) return;
     const rect = containerRef.current.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-    setMousePos({
-      x: mouseX,
-      y: mouseY,
-      nx: mouseX / rect.width,
-      ny: mouseY / rect.height
-    });
+    setMousePos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
   };
 
-  const handleSaveDrawn = () => {
-    if (drawnPoints.length >= 3 && onSaveDrawnZone) {
-      onSaveDrawnZone(drawnPoints);
+  const handleFinishZone = () => {
+    if (drawnPoints.length >= 3) {
+      onSaveDrawnZone?.(drawnPoints);
       setDrawnPoints([]);
+      onToggleDrawZone?.();
     }
   };
 
-  const handleCancelDrawing = () => {
-    setDrawnPoints([]);
-    if (onToggleDrawZone) onToggleDrawZone();
-  };
+  const handleClearZone = () => setDrawnPoints([]);
+  const handleUndoPoint = () => setDrawnPoints((prev) => prev.slice(0, -1));
+  const cleanLabelText = (label) => label ? label.replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/gu, '').trim() : "";
 
   return (
-    <div className="p-4 rounded-2xl bg-zinc-950/80 border border-zinc-800/80 backdrop-blur-xl flex flex-col space-y-3 relative overflow-hidden shadow-2xl">
-      {/* Interactive Drawing Toolbar Banner */}
-      {isDrawingZone && (
-        <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 px-3 rounded-xl bg-amber-950/90 border border-amber-500/80 shadow-lg shadow-amber-950/50 animate-fadeIn z-30">
-          <div className="flex items-center gap-2 font-mono text-xs text-amber-200">
-            <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
-            <span className="font-bold text-amber-300 uppercase tracking-wider">DRAWING CUSTOM ZONE</span>
-            <span className="text-amber-500">•</span>
-            <span>Click on video to add corners ({drawnPoints.length} placed, min 3)</span>
-          </div>
-
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => setDrawnPoints((prev) => prev.slice(0, -1))}
-              disabled={drawnPoints.length === 0}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 disabled:opacity-40 text-zinc-300 text-xs font-mono transition-all border border-zinc-800"
-            >
-              <Undo className="w-3.5 h-3.5" />
-              <span>Undo</span>
-            </button>
-            <button
-              onClick={() => setDrawnPoints([])}
-              disabled={drawnPoints.length === 0}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 disabled:opacity-40 text-zinc-300 text-xs font-mono transition-all border border-zinc-800"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>Clear</span>
-            </button>
-            <button
-              onClick={handleCancelDrawing}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 text-xs font-mono transition-all border border-zinc-800"
-            >
-              <X className="w-3.5 h-3.5" />
-              <span>Cancel</span>
-            </button>
-            <button
-              onClick={handleSaveDrawn}
-              disabled={drawnPoints.length < 3}
-              className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-gradient-to-r from-amber-500 to-emerald-500 hover:from-amber-400 hover:to-emerald-400 disabled:opacity-40 text-zinc-950 font-bold text-xs font-mono shadow-md transition-all"
-            >
-              <Save className="w-3.5 h-3.5" />
-              <span>Save Zone ({drawnPoints.length}/3+)</span>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Video Container + Overlay */}
+    <div className="flex flex-col gap-4 p-5 rounded-3xl bg-zinc-900/90 border border-zinc-800 backdrop-blur-2xl shadow-2xl">
       <div
         ref={containerRef}
-        onClick={handleContainerClick}
-        onMouseMove={handleContainerMouseMove}
-        className={`relative w-full aspect-video bg-black rounded-xl overflow-hidden border border-zinc-800 shadow-2xl flex items-center justify-center group ${
-          isDrawingZone ? "cursor-crosshair ring-2 ring-amber-500/50" : ""
-        }`}
+        className={`relative w-full aspect-video bg-zinc-950 rounded-2xl overflow-hidden border transition-all duration-300 ${hasIntrusion ? "border-rose-500 shadow-2xl shadow-rose-950/40" : "border-zinc-800/90"}`}
+        onMouseMove={handleMouseMove}
+        onClick={handleSvgClick}
       >
         <video
           ref={videoRef}
           src={videoUrl}
+          playsInline
+          muted={muted}
           onTimeUpdate={(e) => onTimeUpdate(e.target.currentTime)}
           onEnded={() => onTogglePlay(false)}
-          className="w-full h-full object-contain pointer-events-auto"
-          playsInline
+          className="w-full h-full object-contain pointer-events-none"
         />
 
-        {/* HUD Elements */}
-        <div className="hud-corner hud-top-left" />
-        <div className="hud-corner hud-top-right" />
-        <div className="hud-corner hud-bottom-left" />
-        <div className="hud-corner hud-bottom-right" />
-
-        {/* Live Feed Status Tag */}
-        <div className="absolute top-3 left-3 z-10 flex items-center gap-2 px-2.5 py-1 rounded bg-slate-950/80 backdrop-blur border border-slate-700 font-mono text-[11px] text-slate-200">
-          <span className="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
-          <span className="font-bold text-red-400">CAM-01 [LIVE]</span>
-          <span className="text-slate-500">|</span>
-          <span className="text-cyan-400">{formatTime(currentTime)}</span>
+        <div className="absolute top-4 left-4 z-20 flex items-center gap-3">
+          <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-zinc-900/90 border border-zinc-800 text-xs font-mono font-bold text-zinc-200 shadow-md">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span>LIVE 60FPS</span>
+          </div>
+          <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-zinc-900/90 border border-zinc-800 text-xs font-mono font-semibold text-zinc-300 shadow-md">
+            <span>TC: {formatTime(currentTime)}</span>
+          </div>
         </div>
 
-        {/* Intrusion Warning Banner */}
-        {hasIntrusion && !isDrawingZone && (
-          <div className="absolute top-3 right-3 z-10 flex items-center gap-2 px-3 py-1 rounded bg-red-950/90 border border-red-500 text-red-200 font-mono text-xs font-bold animate-pulse shadow-lg shadow-red-900/50">
-            <ShieldAlert className="w-4 h-4 text-red-400" />
-            <span>🚨 RESTRICTED ZONE BREACH</span>
+        {hasIntrusion && (
+          <div className="absolute top-4 right-4 z-20 flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-950/90 border border-rose-500/80 text-rose-300 text-xs font-bold font-mono tracking-wide shadow-xl animate-bounce">
+            <ShieldAlert className="w-4 h-4 text-rose-400" />
+            <span>RESTRICTED ZONE BREACH</span>
           </div>
         )}
 
-        {/* SVG Detection & Zone Overlay */}
-        <svg
-          className="absolute inset-0 w-full h-full pointer-events-none z-20"
-          viewBox={`0 0 ${containerDim.width} ${containerDim.height}`}
-        >
-          {/* Active Drawing Zone Canvas */}
+        {isDrawingZone && (
+          <div className="absolute top-16 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 px-5 py-2.5 rounded-2xl bg-zinc-900/95 border border-zinc-700 shadow-2xl">
+            <Crosshair className="w-4 h-4 text-zinc-200 animate-spin" />
+            <span className="text-xs font-medium text-zinc-200">Click to set boundary ({drawnPoints.length} points)</span>
+            <div className="flex items-center gap-1.5 ml-2">
+              {drawnPoints.length >= 3 && <button onClick={handleFinishZone} className="flex items-center gap-1 px-3 py-1 rounded-xl bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-bold shadow transition-all"><Check className="w-3.5 h-3.5" /> Save</button>}
+              {drawnPoints.length > 0 && <button onClick={handleUndoPoint} className="p-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 transition-all"><Undo className="w-3.5 h-3.5" /></button>}
+              <button onClick={handleClearZone} className="p-1.5 rounded-xl bg-zinc-800 hover:bg-rose-900/50 text-zinc-400 border border-zinc-700 transition-all"><Trash2 className="w-3.5 h-3.5" /></button>
+              <button onClick={onToggleDrawZone} className="p-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-400 border border-zinc-700 transition-all"><X className="w-3.5 h-3.5" /></button>
+            </div>
+          </div>
+        )}
+
+        <svg className="absolute inset-0 w-full h-full pointer-events-none z-10">
+          {enableBoundaryCheck && zonePolygonPoints && (
+            <polygon points={zonePolygonPoints} fill={hasIntrusion ? "rgba(239, 68, 68, 0.18)" : "rgba(113, 113, 122, 0.12)"} stroke={hasIntrusion ? "#ef4444" : "#71717a"} strokeWidth="2" strokeDasharray={hasIntrusion ? "none" : "6,6"} />
+          )}
           {isDrawingZone && drawnPoints.length > 0 && (
             <g>
-              {/* Drawn Polygon Fill (if >= 3 points) */}
-              {drawnPoints.length >= 3 && (
-                <polygon
-                  points={drawnPoints.map(([nx, ny]) => `${nx * containerDim.width},${ny * containerDim.height}`).join(" ")}
-                  fill="rgba(245, 158, 11, 0.2)"
-                  stroke="#f59e0b"
-                  strokeWidth="2"
-                  strokeDasharray="4 2"
-                />
-              )}
-
-              {/* Drawn Lines connecting vertices */}
-              {drawnPoints.map((pt, idx) => {
-                if (idx === 0) return null;
-                const prev = drawnPoints[idx - 1];
-                return (
-                  <line
-                    key={`drawn-line-${idx}`}
-                    x1={prev[0] * containerDim.width}
-                    y1={prev[1] * containerDim.height}
-                    x2={pt[0] * containerDim.width}
-                    y2={pt[1] * containerDim.height}
-                    stroke="#f59e0b"
-                    strokeWidth="3"
-                  />
-                );
-              })}
-
-              {/* Dynamic Preview Line from last point to mouse cursor */}
-              {mousePos && drawnPoints.length > 0 && (
-                <g>
-                  <line
-                    x1={drawnPoints[drawnPoints.length - 1][0] * containerDim.width}
-                    y1={drawnPoints[drawnPoints.length - 1][1] * containerDim.height}
-                    x2={mousePos.x}
-                    y2={mousePos.y}
-                    stroke="#fbbf24"
-                    strokeWidth="2"
-                    strokeDasharray="4 3"
-                  />
-                  {drawnPoints.length >= 2 && (
-                    <line
-                      x1={mousePos.x}
-                      y1={mousePos.y}
-                      x2={drawnPoints[0][0] * containerDim.width}
-                      y2={drawnPoints[0][1] * containerDim.height}
-                      stroke="#fbbf24"
-                      strokeWidth="1.5"
-                      strokeDasharray="3 3"
-                      opacity="0.6"
-                    />
-                  )}
-                </g>
-              )}
-
-              {/* Vertex Nodes with Point Labels */}
-              {drawnPoints.map(([nx, ny], idx) => {
-                const px = nx * containerDim.width;
-                const py = ny * containerDim.height;
-                return (
-                  <g key={`drawn-pt-${idx}`}>
-                    <circle
-                      cx={px}
-                      cy={py}
-                      r="6"
-                      fill="#f59e0b"
-                      stroke="#ffffff"
-                      strokeWidth="2"
-                      style={{ filter: "drop-shadow(0 0 6px rgba(245, 158, 11, 0.8))" }}
-                    />
-                    <rect
-                      x={px + 8}
-                      y={py - 16}
-                      width="26"
-                      height="16"
-                      fill="#0f172a"
-                      rx="3"
-                      stroke="#f59e0b"
-                      strokeWidth="1"
-                    />
-                    <text
-                      x={px + 12}
-                      y={py - 4}
-                      fill="#f59e0b"
-                      fontSize="10"
-                      fontWeight="bold"
-                      fontFamily="JetBrains Mono, monospace"
-                    >
-                      P{idx + 1}
-                    </text>
-                  </g>
-                );
-              })}
+              <polygon points={drawnPoints.map(([nx, ny]) => `${nx * containerDim.width},${ny * containerDim.height}`).join(" ")} fill="rgba(228, 228, 231, 0.15)" stroke="#e4e4e7" strokeWidth="2" strokeDasharray="4,4" />
+              {drawnPoints.map(([nx, ny], i) => <circle key={i} cx={nx * containerDim.width} cy={ny * containerDim.height} r="5" fill="#ffffff" stroke="#18181b" strokeWidth="2" />)}
+              {mousePos && <line x1={drawnPoints[drawnPoints.length - 1][0] * containerDim.width} y1={drawnPoints[drawnPoints.length - 1][1] * containerDim.height} x2={mousePos.x} y2={mousePos.y} stroke="#ffffff" strokeWidth="1.5" strokeDasharray="2,2" />}
             </g>
           )}
-
-          {/* Saved Restricted Zone Polygon (when not actively drawing) */}
-          {!isDrawingZone && enableBoundaryCheck && zonePolygonPoints && (
-            <g>
-              <polygon
-                points={zonePolygonPoints}
-                fill={hasIntrusion ? "rgba(239, 68, 68, 0.25)" : "rgba(0, 240, 255, 0.08)"}
-                stroke={hasIntrusion ? "#ef4444" : "#00f0ff"}
-                strokeWidth="2"
-                strokeDasharray={hasIntrusion ? "6 3" : "4 2"}
-                className="transition-all duration-300"
-              />
-              {/* Zone Label */}
-              <text
-                x={restrictedZone[0][0] * containerDim.width + 10}
-                y={restrictedZone[0][1] * containerDim.height + 20}
-                fill={hasIntrusion ? "#ef4444" : "#00f0ff"}
-                fontSize="11"
-                fontWeight="bold"
-                fontFamily="JetBrains Mono, monospace"
-              >
-                {hasIntrusion ? "⚠️ BREACH IN PROGRESS" : "🛡️ RESTRICTED ZONE [MONITORED]"}
-              </text>
-            </g>
-          )}
-
-          {/* Render Frame Object Bounding Boxes (60 FPS Smooth Motion Interpolation) */}
-          {(smoothObjects.length > 0 ? smoothObjects : (currentFrameData?.objects || [])).map((obj, idx) => {
-            const x = obj.x !== undefined ? obj.x : (obj.bbox[0] * containerDim.width);
-            const y = obj.y !== undefined ? obj.y : (obj.bbox[1] * containerDim.height);
-            const w = obj.w !== undefined ? obj.w : Math.max(14, obj.bbox[2] * containerDim.width);
-            const h = obj.h !== undefined ? obj.h : Math.max(14, obj.bbox[3] * containerDim.height);
-            const isPerson = obj.class === "person";
-            const isVehicle = ["car", "truck", "bus", "motorcycle", "bicycle", "train", "boat", "airplane"].includes(obj.class);
-            const isIntruder = obj.in_restricted_zone;
+          {smoothObjects.map((obj, idx) => {
+            const { x, y, w, h } = obj;
+            const isIntruder = obj.in_restricted_zone && enableBoundaryCheck;
             const isSpeeding = obj.is_overspeeding;
+            const isMasked = obj.is_masked;
             const isRunning = obj.is_running;
-            const color = isIntruder || isSpeeding ? "#ef4444" : (isRunning ? "#f97316" : (isPerson ? "#38bdf8" : (isVehicle ? "#f59e0b" : (obj.color || "#a855f7"))));
-            const fillBg = isIntruder || isSpeeding ? "rgba(239, 68, 68, 0.15)" : (isRunning ? "rgba(249, 115, 22, 0.12)" : (isPerson ? "rgba(56, 189, 248, 0.06)" : (isVehicle ? "rgba(245, 158, 11, 0.06)" : "rgba(168, 85, 247, 0.08)")));
-
+            const isVehicle = ["car", "truck", "bus"].includes(obj.class);
+            const isPerson = obj.class === "person";
+            let strokeColor = "#71717a", fillColor = "rgba(113, 113, 122, 0.08)", badgeBg = "#18181b";
+            if (isIntruder || isSpeeding) { strokeColor = "#ef4444"; fillColor = "rgba(239, 68, 68, 0.18)"; badgeBg = "#7f1d1d"; }
+            else if (isMasked) { strokeColor = "#a855f7"; fillColor = "rgba(168, 85, 247, 0.16)"; badgeBg = "#581c87"; }
+            else if (isRunning) { strokeColor = "#f59e0b"; fillColor = "rgba(245, 158, 11, 0.16)"; badgeBg = "#78350f"; }
+            else if (isVehicle) { strokeColor = "#d4d4d8"; fillColor = "rgba(212, 212, 216, 0.06)"; badgeBg = "#27272a"; }
+            else if (isPerson) { strokeColor = "#a1a1aa"; fillColor = "rgba(161, 161, 170, 0.06)"; badgeBg = "#27272a"; }
+            const cleanLbl = cleanLabelText(obj.label);
             return (
-              <g key={`bbox-${obj.tracking_id || idx}-${obj.label}`}>
-                {/* Main Bounding Box Rectangle */}
-                <rect
-                  x={x}
-                  y={y}
-                  width={w}
-                  height={h}
-                  fill={fillBg}
-                  stroke={color}
-                  strokeWidth={isIntruder || isSpeeding ? "3" : "2"}
-                  rx="6"
-                />
-
-                {/* Class Label Pill Header */}
-                <rect
-                  x={Math.max(2, x)}
-                  y={y > 28 ? y - 26 : y + h + 2}
-                  width={Math.max(90, obj.label.length * 8.0 + 35)}
-                  height="24"
-                  fill={isIntruder || isSpeeding ? "#dc2626" : "#0f172a"}
-                  opacity="0.95"
-                  rx="6"
-                  stroke={color}
-                  strokeWidth="1.5"
-                />
-                <text
-                  x={Math.max(8, x + 8)}
-                  y={y > 28 ? y - 9 : y + h + 18}
-                  fill="#ffffff"
-                  fontSize="12"
-                  fontWeight="600"
-                  fontFamily="Inter, sans-serif"
-                >
-                  {obj.label} <tspan fill={isIntruder || isSpeeding ? "#fecaca" : "#94a3b8"} fontSize="11">[{Math.round(obj.confidence)}%]</tspan>
+              <g key={`bbox-${obj.tracking_id || idx}-${cleanLbl}`}>
+                <rect x={x} y={y} width={w} height={h} fill={fillColor} stroke={strokeColor} strokeWidth={isIntruder || isSpeeding || isMasked ? "2.5" : "1.75"} rx="8" />
+                <rect x={Math.max(4, x)} y={y > 28 ? y - 26 : y + h + 4} width={Math.max(90, cleanLbl.length * 7.5 + 36)} height="22" fill={badgeBg} opacity="0.95" rx="6" stroke={strokeColor} strokeWidth="1.2" />
+                <text x={Math.max(10, x + 8)} y={y > 28 ? y - 10 : y + h + 19} fill="#ffffff" fontSize="11" fontWeight="600" fontFamily="Inter, sans-serif">
+                  {cleanLbl} <tspan fill="#a1a1aa" fontSize="10">[{Math.round(obj.confidence)}%]</tspan>
                 </text>
               </g>
             );
@@ -493,92 +309,45 @@ export default function VideoPlayer({
         </svg>
       </div>
 
-      {/* Video Control Bar */}
-      <div className="space-y-2">
-        {/* Timeline with Alert Event Ticks */}
-        <div className="relative w-full h-3 bg-slate-900 rounded border border-slate-800 flex items-center cursor-pointer group">
-          <input
-            type="range"
-            min="0"
-            max={duration || 100}
-            step="0.1"
-            value={currentTime}
-            onChange={(e) => onSeek(parseFloat(e.target.value))}
-            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
-          />
-          {/* Progress fill */}
-          <div
-            className="h-full bg-cyan-500/80 rounded-l transition-all duration-75 pointer-events-none"
-            style={{ width: `${(currentTime / (duration || 1)) * 100}%` }}
-          />
-          {/* Event markers on timeline */}
-          {events.map((evt) => {
-            const pct = (evt.timestamp / (duration || 1)) * 100;
-            const isCritical = evt.severity === "CRITICAL" || evt.severity === "HIGH";
-            return (
-              <div
-                key={`tick-${evt.id}`}
-                className={`absolute top-0 bottom-0 w-1 z-10 pointer-events-none ${
-                  isCritical ? "bg-red-500 shadow-md shadow-red-500" : "bg-amber-400"
-                }`}
-                style={{ left: `${pct}%` }}
-                title={`${evt.severity}: ${evt.title} (${formatTime(evt.timestamp)})`}
-              />
-            );
-          })}
+      <div className="flex flex-col gap-3 pt-1">
+        <div className="relative w-full h-3 bg-zinc-950 rounded-full border border-zinc-800 flex items-center cursor-pointer group shadow-inner">
+          <input type="range" min="0" max={duration || 100} step="0.05" value={currentTime} onChange={(e) => onSeek(parseFloat(e.target.value))} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20" />
+          <div className="h-full bg-zinc-200 rounded-full transition-all duration-75 pointer-events-none" style={{ width: `${(currentTime / (duration || 1)) * 100}%` }} />
+          {events.map((evt) => (
+            <div key={`tick-${evt.id}`} className={`absolute top-0 bottom-0 w-1.5 rounded-full z-10 pointer-events-none ${evt.severity === "CRITICAL" || evt.severity === "HIGH" ? "bg-rose-500" : "bg-amber-400"}`} style={{ left: `${(evt.timestamp / (duration || 1)) * 100}%` }} title={`${evt.severity}: ${cleanLabelText(evt.title)}`} />
+          ))}
         </div>
 
-        {/* Buttons & Timecode controls */}
-        <div className="flex flex-wrap items-center justify-between gap-3 text-xs font-mono text-zinc-300 pt-1">
-          <div className="flex items-center gap-2">
-            {/* Play/Pause */}
-            <button
-              onClick={() => onTogglePlay(!isPlaying)}
-              className="p-2.5 rounded-xl bg-cyan-950/80 hover:bg-cyan-900 text-cyan-300 border border-cyan-500/40 transition-all shadow-sm"
-              title={isPlaying ? "Pause" : "Play"}
-            >
-              {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 fill-cyan-300" />}
+        <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-zinc-300">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <button onClick={() => onTogglePlay(!isPlaying)} className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-zinc-100 hover:bg-white text-zinc-950 font-bold transition-all shadow-md">
+              {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 fill-zinc-950" />} <span>{isPlaying ? "Pause" : "Play"}</span>
             </button>
-
-            {/* Jump Alert Buttons */}
-            <button
-              onClick={onPrevAlert}
-              className="flex items-center gap-1 px-3 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 transition-all"
-              title="Jump to Previous Incident"
-            >
-              <SkipBack className="w-3.5 h-3.5 text-cyan-400" />
-              <span className="hidden sm:inline">PREV INCIDENT</span>
+            <button onClick={onPrevAlert} className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-zinc-800 hover:bg-zinc-750 text-zinc-200 border border-zinc-700/80 font-semibold transition-all shadow-sm">
+              <SkipBack className="w-4 h-4 text-zinc-400" /> <span>Prev Incident</span>
             </button>
-            <button
-              onClick={onNextAlert}
-              className="flex items-center gap-1 px-3 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 transition-all"
-              title="Jump to Next Incident"
-            >
-              <span className="hidden sm:inline">NEXT INCIDENT</span>
-              <SkipForward className="w-3.5 h-3.5 text-cyan-400" />
+            <button onClick={onNextAlert} className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-zinc-800 hover:bg-zinc-750 text-zinc-200 border border-zinc-700/80 font-semibold transition-all shadow-sm">
+              <span>Next Incident</span> <SkipForward className="w-4 h-4 text-zinc-400" />
             </button>
-
-            {/* Time Display */}
-            <div className="px-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-cyan-400 font-bold">
-              {formatTime(currentTime)} / {formatTime(duration)}
-            </div>
+            <div className="px-4 py-2 rounded-2xl bg-zinc-950 border border-zinc-800 text-zinc-200 font-mono font-bold">{formatTime(currentTime)} <span className="text-zinc-500">/</span> {formatTime(duration)}</div>
           </div>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1 bg-zinc-950 p-1 rounded-2xl border border-zinc-800">
+              {[0.5, 1.0, 1.5, 2.0].map((s) => (
+                <button key={s} onClick={() => handleSpeedChange(s)} className={`px-3 py-1 rounded-xl text-[11px] font-mono transition-all ${speed === s ? "bg-zinc-800 text-white border border-zinc-700 font-bold shadow-sm" : "text-zinc-400 hover:text-zinc-200"}`}>{s}x</button>
+              ))}
+            </div>
+            <button onClick={() => containerRef.current?.requestFullscreen?.()} className="p-2.5 rounded-2xl bg-zinc-800 hover:bg-zinc-750 text-zinc-300 border border-zinc-700 transition-all shadow-sm">
+              <Maximize className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
 
-          {/* Speed selector */}
-          <div className="flex items-center gap-1 bg-zinc-900/90 p-1 rounded-xl border border-zinc-800">
-            {[0.5, 1.0, 1.5, 2.0].map((s) => (
-              <button
-                key={s}
-                onClick={() => handleSpeedChange(s)}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-mono transition-all ${
-                  speed === s
-                    ? "bg-zinc-800 text-cyan-300 border border-zinc-700 font-bold shadow-sm"
-                    : "text-zinc-400 hover:text-zinc-200"
-                }`}
-              >
-                {s}x
-              </button>
-            ))}
+        <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono pt-1 border-t border-zinc-800/80">
+          <div className="flex items-center gap-4 flex-wrap">
+            <span><kbd className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300">Space</kbd> Play/Pause</span>
+            <span><kbd className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300">← / →</kbd> Prev/Next</span>
+            <span><kbd className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300">F</kbd> Fullscreen</span>
           </div>
         </div>
       </div>
