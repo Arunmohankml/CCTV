@@ -25,6 +25,12 @@ export default function VideoPlayer({
   const [drawnPoints, setDrawnPoints] = useState([]);
   const [mousePos, setMousePos] = useState(null);
 
+  // 60 FPS Motion Interpolation State
+  const [smoothObjects, setSmoothObjects] = useState([]);
+  const targetObjectsRef = useRef([]);
+  const currentObjectsRef = useRef(new Map());
+  const animFrameRef = useRef(null);
+
   // Sync HTML5 video play/pause with state
   useEffect(() => {
     if (!videoRef.current) return;
@@ -57,6 +63,79 @@ export default function VideoPlayer({
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
+
+  // Update target objects whenever live detection updates
+  useEffect(() => {
+    if (liveFrameData && Array.isArray(liveFrameData.objects)) {
+      targetObjectsRef.current = liveFrameData.objects;
+    }
+  }, [liveFrameData]);
+
+  // 60 FPS Smooth Interpolation Loop
+  useEffect(() => {
+    let active = true;
+    const loop = () => {
+      if (!active) return;
+      const targets = targetObjectsRef.current || [];
+      const currentMap = currentObjectsRef.current;
+      const nextObjects = [];
+      const seenIds = new Set();
+
+      targets.forEach((obj) => {
+        const id = obj.tracking_id !== undefined ? String(obj.tracking_id) : (obj.label || Math.random());
+        seenIds.add(id);
+        const [nx, ny, nw, nh] = obj.bbox;
+        const targetX = nx * containerDim.width;
+        const targetY = ny * containerDim.height;
+        const targetW = Math.max(14, nw * containerDim.width);
+        const targetH = Math.max(14, nh * containerDim.height);
+
+        if (!currentMap.has(id)) {
+          const state = {
+            ...obj,
+            x: targetX,
+            y: targetY,
+            w: targetW,
+            h: targetH
+          };
+          currentMap.set(id, state);
+          nextObjects.push(state);
+        } else {
+          const curr = currentMap.get(id);
+          const lerp = 0.32; // Smooth tracking interpolation factor
+          curr.x += (targetX - curr.x) * lerp;
+          curr.y += (targetY - curr.y) * lerp;
+          curr.w += (targetW - curr.w) * lerp;
+          curr.h += (targetH - curr.h) * lerp;
+          curr.label = obj.label;
+          curr.confidence = obj.confidence;
+          curr.in_restricted_zone = obj.in_restricted_zone;
+          curr.is_running = obj.is_running;
+          curr.is_overspeeding = obj.is_overspeeding;
+          curr.speed_kmh = obj.speed_kmh;
+          curr.plate_number = obj.plate_number;
+          curr.color = obj.color;
+          nextObjects.push(curr);
+        }
+      });
+
+      // Remove vanished tracks
+      for (const [id] of currentMap) {
+        if (!seenIds.has(id)) {
+          currentMap.delete(id);
+        }
+      }
+
+      setSmoothObjects(nextObjects);
+      animFrameRef.current = requestAnimationFrame(loop);
+    };
+
+    animFrameRef.current = requestAnimationFrame(loop);
+    return () => {
+      active = false;
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    };
+  }, [containerDim]);
 
   const handleSpeedChange = (newSpeed) => {
     setSpeed(newSpeed);
@@ -358,21 +437,22 @@ export default function VideoPlayer({
             </g>
           )}
 
-          {/* Render Frame Object Bounding Boxes */}
-          {currentFrameData?.objects?.map((obj, idx) => {
-            const [nx, ny, nw, nh] = obj.bbox;
-            const x = nx * containerDim.width;
-            const y = ny * containerDim.height;
-            const w = Math.max(12, nw * containerDim.width);
-            const h = Math.max(12, nh * containerDim.height);
+          {/* Render Frame Object Bounding Boxes (60 FPS Smooth Motion Interpolation) */}
+          {(smoothObjects.length > 0 ? smoothObjects : (currentFrameData?.objects || [])).map((obj, idx) => {
+            const x = obj.x !== undefined ? obj.x : (obj.bbox[0] * containerDim.width);
+            const y = obj.y !== undefined ? obj.y : (obj.bbox[1] * containerDim.height);
+            const w = obj.w !== undefined ? obj.w : Math.max(14, obj.bbox[2] * containerDim.width);
+            const h = obj.h !== undefined ? obj.h : Math.max(14, obj.bbox[3] * containerDim.height);
             const isPerson = obj.class === "person";
             const isVehicle = ["car", "truck", "bus", "motorcycle", "bicycle", "train", "boat", "airplane"].includes(obj.class);
             const isIntruder = obj.in_restricted_zone;
-            const color = isIntruder ? "#ef4444" : (isPerson ? "#38bdf8" : (isVehicle ? "#f59e0b" : (obj.color || "#a855f7")));
-            const fillBg = isIntruder ? "rgba(239, 68, 68, 0.15)" : (isPerson ? "rgba(56, 189, 248, 0.06)" : (isVehicle ? "rgba(245, 158, 11, 0.06)" : "rgba(168, 85, 247, 0.08)"));
+            const isSpeeding = obj.is_overspeeding;
+            const isRunning = obj.is_running;
+            const color = isIntruder || isSpeeding ? "#ef4444" : (isRunning ? "#f97316" : (isPerson ? "#38bdf8" : (isVehicle ? "#f59e0b" : (obj.color || "#a855f7"))));
+            const fillBg = isIntruder || isSpeeding ? "rgba(239, 68, 68, 0.15)" : (isRunning ? "rgba(249, 115, 22, 0.12)" : (isPerson ? "rgba(56, 189, 248, 0.06)" : (isVehicle ? "rgba(245, 158, 11, 0.06)" : "rgba(168, 85, 247, 0.08)")));
 
             return (
-              <g key={`bbox-${idx}-${obj.label}`} className="box-enter">
+              <g key={`bbox-${obj.tracking_id || idx}-${obj.label}`}>
                 {/* Main Bounding Box Rectangle */}
                 <rect
                   x={x}
@@ -381,7 +461,7 @@ export default function VideoPlayer({
                   height={h}
                   fill={fillBg}
                   stroke={color}
-                  strokeWidth={isIntruder ? "3" : "2"}
+                  strokeWidth={isIntruder || isSpeeding ? "3" : "2"}
                   rx="6"
                 />
 
@@ -389,9 +469,9 @@ export default function VideoPlayer({
                 <rect
                   x={Math.max(2, x)}
                   y={y > 28 ? y - 26 : y + h + 2}
-                  width={Math.max(90, obj.label.length * 8.5 + 45)}
+                  width={Math.max(90, obj.label.length * 8.0 + 35)}
                   height="24"
-                  fill={isIntruder ? "#dc2626" : "#0f172a"}
+                  fill={isIntruder || isSpeeding ? "#dc2626" : "#0f172a"}
                   opacity="0.95"
                   rx="6"
                   stroke={color}
@@ -405,7 +485,7 @@ export default function VideoPlayer({
                   fontWeight="600"
                   fontFamily="Inter, sans-serif"
                 >
-                  {obj.label} <tspan fill={isIntruder ? "#fecaca" : "#94a3b8"} fontSize="11">[{Math.round(obj.confidence)}%]</tspan>
+                  {obj.label} <tspan fill={isIntruder || isSpeeding ? "#fecaca" : "#94a3b8"} fontSize="11">[{Math.round(obj.confidence)}%]</tspan>
                 </text>
               </g>
             );

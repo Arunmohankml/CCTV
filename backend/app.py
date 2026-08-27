@@ -273,6 +273,50 @@ def detect_live_frame(req: LiveFrameRequest):
     if not video_path or not os.path.exists(video_path):
         raise HTTPException(status_code=404, detail="Video file not found.")
 
+    # Check if pre-analyzed result cache exists for instant sub-millisecond return
+    cache_file = os.path.join(RESULTS_DIR, f"{target_key}.json")
+    if os.path.exists(cache_file):
+        try:
+            with open(cache_file, "r") as f:
+                cached_data = json.load(f)
+            frames = cached_data.get("frames", [])
+            if frames:
+                # Find closest frame by timestamp
+                closest = min(frames, key=lambda x: abs(x.get("timestamp", 0) - req.timestamp))
+                if abs(closest.get("timestamp", 0) - req.timestamp) < 1.0:
+                    # Dynamically re-evaluate zone intrusion on custom zone
+                    boundary_check = req.enable_boundary_check if req.enable_boundary_check is not None else True
+                    custom_zone = req.restricted_zone or cached_data.get("restricted_zone", [[0.25, 0.25], [0.75, 0.25], [0.75, 0.75], [0.25, 0.75]])
+                    
+                    frame_objs = []
+                    has_intrusion = False
+                    new_events = []
+
+                    for obj in closest.get("objects", []):
+                        bx, by, bw, bh = obj["bbox"]
+                        bcx, bcy = bx + bw / 2.0, by + bh
+                        in_zone = is_point_in_polygon((bcx, bcy), custom_zone)
+                        is_intruder = in_zone and boundary_check
+                        if is_intruder:
+                            has_intrusion = True
+                        
+                        obj_copy = dict(obj)
+                        obj_copy["in_restricted_zone"] = is_intruder
+                        if is_intruder:
+                            obj_copy["color"] = "#ef4444"
+                        frame_objs.append(obj_copy)
+
+                    return {
+                        "timestamp": req.timestamp,
+                        "objects": frame_objs,
+                        "has_intrusion": has_intrusion,
+                        "new_plates": [p for p in cached_data.get("plate_registry", []) if abs(p.get("timestamp", 0) - req.timestamp) < 0.8],
+                        "new_events": [e for e in cached_data.get("events", []) if abs(e.get("timestamp", 0) - req.timestamp) < 0.8],
+                        "new_faces": [f for f in cached_data.get("face_captures", []) if abs(f.get("timestamp", 0) - req.timestamp) < 0.8]
+                    }
+        except Exception:
+            pass
+
     cap = cap_cache.get(video_path)
     if cap is None or not cap.isOpened():
         cap = cv2.VideoCapture(video_path)
@@ -284,7 +328,6 @@ def detect_live_frame(req: LiveFrameRequest):
     ret, frame = cap.read()
 
     if not ret or frame is None:
-        # Retry with msec seek
         cap.set(cv2.CAP_PROP_POS_MSEC, req.timestamp * 1000)
         ret, frame = cap.read()
 
@@ -304,6 +347,14 @@ def detect_live_frame(req: LiveFrameRequest):
         enable_boundary_check=req.enable_boundary_check if req.enable_boundary_check is not None else True
     )
     return res
+
+@app.post("/api/reset_state")
+def reset_backend_state():
+    """
+    Clears live tracking IDs, kinematic history, face snapshot timers, and ANPR queues when video changes.
+    """
+    analyzer_instance.reset_state()
+    return {"status": "SUCCESS", "message": "Backend tracking state reset successfully."}
 
 @app.post("/api/detect_live_image")
 async def detect_live_image(

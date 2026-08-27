@@ -85,6 +85,9 @@ export default function App() {
     lastProcessedTimeRef.current = -1;
     isDetectingRef.current = false;
     
+    // Reset backend tracking history and queues
+    fetch(`${API_BASE}/reset_state`, { method: "POST" }).catch(() => {});
+
     setLiveFrameData(null);
     setLivePlates([]);
     setLiveEvents([]);
@@ -106,7 +109,7 @@ export default function App() {
     if (!activeVideoId) return;
 
     const timeDiff = Math.abs(currentTime - lastProcessedTimeRef.current);
-    if (timeDiff < 0.12 || isDetectingRef.current) return;
+    if (timeDiff < 0.06 || isDetectingRef.current) return;
 
     isDetectingRef.current = true;
     lastProcessedTimeRef.current = currentTime;
