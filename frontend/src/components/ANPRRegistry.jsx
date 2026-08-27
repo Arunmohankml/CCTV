@@ -20,13 +20,15 @@ export default function ANPRRegistry({ plateRegistry = [], currentTime, onSeekTo
     const map = new Map();
 
     (plateRegistry || []).forEach((item) => {
-      const num = item.plate_number || 'UNKNOWN';
+      const num = (item.plate_number || '').trim();
+      if (!num || num === 'NIL' || num === 'UNKNOWN' || num === 'NOT VISIBLE / NIL') return;
+      
       if (!map.has(num)) {
         map.set(num, {
           plate_number: num,
           vehicle_type: item.vehicle_type || 'Vehicle',
           tracking_id: item.tracking_id,
-          status: item.status || 'UNAUTHORIZED',
+          status: item.status || 'VERIFIED',
           confidence: item.confidence || 92.0,
           firstSeen: item.timestamp,
           lastSeen: item.timestamp,
