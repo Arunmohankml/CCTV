@@ -344,7 +344,8 @@ def detect_live_frame(req: LiveFrameRequest):
         frame=frame,
         timestamp=req.timestamp,
         restricted_zone=req.restricted_zone,
-        enable_boundary_check=req.enable_boundary_check if req.enable_boundary_check is not None else True
+        enable_boundary_check=req.enable_boundary_check if req.enable_boundary_check is not None else True,
+        sample_id=req.sample_id or ""
     )
     return res
 
@@ -436,8 +437,10 @@ def stream_video(video_id: str, request: Request):
     file_size = os.path.getsize(video_path)
     range_header = request.headers.get("range")
 
+    mime_type = "video/webm" if video_path.lower().endswith(".webm") else "video/mp4"
+
     if not range_header:
-        return FileResponse(video_path, media_type="video/mp4")
+        return FileResponse(video_path, media_type=mime_type)
 
     # Range header parsing (e.g., "bytes=0-")
     range_str = range_header.replace("bytes=", "")
@@ -462,7 +465,7 @@ def stream_video(video_id: str, request: Request):
         "Content-Range": f"bytes {start}-{end}/{file_size}",
         "Accept-Ranges": "bytes",
         "Content-Length": str(chunk_size),
-        "Content-Type": "video/mp4",
+        "Content-Type": mime_type,
     }
 
     return StreamingResponse(iterfile(), status_code=206, headers=headers)

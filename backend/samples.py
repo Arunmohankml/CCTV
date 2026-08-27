@@ -15,6 +15,62 @@ def discover_sample_videos() -> List[Dict[str, str]]:
     # Predefined known sample videos with friendly titles & metadata
     known_samples = [
         {
+            "id": "video-masked-thieves",
+            "title": "🎭 Masked Thieves in Balaclavas CCTV",
+            "category": "Suspicious Activity & Mask Detection",
+            "description": "Perimeter camera detecting masked perpetrators in balaclavas attempting residential burglary.",
+            "path": os.path.join(VIDEOS_DIR, "stock-footage-cctv-records-how-masked-thiefs-in-balaclava-is-going-to-steal-and-rob-the-house.webm")
+        },
+        {
+            "id": "video-cat-burglar",
+            "title": "🥷 Cat Burglar After-Hours Intrusion CCTV",
+            "category": "Facility Intrusion & Theft",
+            "description": "Surveillance footage of unauthorized intruder sneaking into commercial shopping center after hours.",
+            "path": os.path.join(VIDEOS_DIR, "stock-footage-surveillance-security-camera-footage-of-a-cat-burglar-sneaking-into-the-shopping-center-after-hours.webm")
+        },
+        {
+            "id": "video-military-running",
+            "title": "🏃 Sprinting & Fleeing Suspects CCTV",
+            "category": "Suspect Pursuit & Running",
+            "description": "High-speed kinematic velocity camera detecting rapid sprinting and fleeing suspects.",
+            "path": os.path.join(VIDEOS_DIR, "Two_people_running_in_military_202608270710.mp4")
+        },
+        {
+            "id": "video-military-convoy",
+            "title": "🎖️ Military Convoy & Vehicle Perimeter",
+            "category": "Perimeter & Vehicle Security",
+            "description": "Restricted military corridor camera monitoring convoy vehicles and passing traffic.",
+            "path": os.path.join(VIDEOS_DIR, "Car_passing_military_vehicles_hi._202608270720.mp4")
+        },
+        {
+            "id": "video-five-thieves",
+            "title": "Five Suspects / Theft CCTV Feed",
+            "category": "Security Breach & Theft",
+            "description": "Perimeter camera detecting multiple unauthorized individuals and intrusion activity.",
+            "path": os.path.join(VIDEOS_DIR, "vidssave.com five Thief Caught on CCTV camera 720P.mp4")
+        },
+        {
+            "id": "video-security-alpha",
+            "title": "📹 High-Security Sector Alpha Feed",
+            "category": "Facility Security",
+            "description": "Direct surveillance camera monitoring high-priority access zone.",
+            "path": os.path.join(VIDEOS_DIR, "WhatsApp Video 2026-08-27 at 7.32.51 AM.mp4")
+        },
+        {
+            "id": "video-security-bravo",
+            "title": "📹 High-Security Sector Bravo Feed",
+            "category": "Facility Security",
+            "description": "Direct surveillance camera monitoring perimeter gateway corridor.",
+            "path": os.path.join(VIDEOS_DIR, "WhatsApp Video 2026-08-27 at 7.32.55 AM.mp4")
+        },
+        {
+            "id": "video-security-charlie",
+            "title": "📹 High-Security Sector Charlie Feed",
+            "category": "Facility Security",
+            "description": "Direct surveillance camera observing building entry sector.",
+            "path": os.path.join(VIDEOS_DIR, "WhatsApp Video 2026-08-27 at 7.32.57 AM.mp4")
+        },
+        {
             "id": "video-highway-traffic",
             "title": "Highway Traffic Flow & Multi-Lane ANPR",
             "category": "Highway & Traffic Surveillance",
@@ -34,41 +90,6 @@ def discover_sample_videos() -> List[Dict[str, str]]:
             "category": "Armed Incident",
             "description": "Public surveillance feed capturing armed perpetrator confrontation.",
             "path": os.path.join(VIDEOS_DIR, "vidssave.com This Kerala policeman’s bravery went viral on the internet as he subdued a man wielding a machete 720P.mp4")
-        },
-        {
-            "id": "video-five-thieves",
-            "title": "Five Suspects / Theft CCTV Feed",
-            "category": "Security Breach & Theft",
-            "description": "Perimeter camera detecting multiple unauthorized individuals and intrusion activity.",
-            "path": os.path.join(VIDEOS_DIR, "vidssave.com five Thief Caught on CCTV camera 720P.mp4")
-        },
-        {
-            "id": "sample-cctv-01",
-            "title": "Restricted Zone CCTV Footage",
-            "category": "Perimeter Intrusion",
-            "description": "High-definition surveillance feed monitoring building entryway & parking corridor.",
-            "path": os.path.join(REFERENCE_DIR, "person_detection_from_cctv_video-master", "person_detection_from_cctv_video-master", "cctv.mp4")
-        },
-        {
-            "id": "sample-cctv-02",
-            "title": "Street & Pedestrian Feed",
-            "category": "Public Surveillance",
-            "description": "City CCTV feed tracking pedestrian & vehicle movement.",
-            "path": os.path.join(REFERENCE_DIR, "person_detection_from_cctv_video-master", "person_detection_from_cctv_video-master", "test_video.mp4")
-        },
-        {
-            "id": "sample-cctv-03",
-            "title": "Security Camera Feed #1",
-            "category": "Facility Security",
-            "description": "Indoor security camera observing corridor access zone.",
-            "path": os.path.join(REFERENCE_DIR, "Detection-of-pistol-by-deep-learning-With-YOLO_v5-main", "Detection-of-pistol-by-deep-learning-With-YOLO_v5-main", "Test Video", "Test video_1.mp4")
-        },
-        {
-            "id": "sample-cctv-04",
-            "title": "Security Camera Feed #2",
-            "category": "Facility Security",
-            "description": "High-risk entrance surveillance feed.",
-            "path": os.path.join(REFERENCE_DIR, "Detection-of-pistol-by-deep-learning-With-YOLO_v5-main", "Detection-of-pistol-by-deep-learning-With-YOLO_v5-main", "Test Video", "Test video_3.mp4")
         }
     ]
 
@@ -96,9 +117,10 @@ def discover_sample_videos() -> List[Dict[str, str]]:
                 if full_p not in added_paths:
                     vid_id = "vdir-" + os.path.splitext(fname)[0].replace(" ", "_").lower()
                     size_mb = round(os.path.getsize(full_p) / (1024 * 1024), 2)
+                    clean_title = fname.replace(".mp4", "").replace(".webm", "").replace("_", " ").title()
                     samples.append({
                         "id": vid_id,
-                        "title": fname.replace(".mp4", "").replace(".webm", "").replace("_", " ").title(),
+                        "title": f"📹 {clean_title}",
                         "category": "Uploaded CCTV",
                         "description": f"Custom surveillance video file ({size_mb} MB)",
                         "file_path": full_p,
