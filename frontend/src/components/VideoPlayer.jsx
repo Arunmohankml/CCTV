@@ -250,12 +250,39 @@ export default function VideoPlayer({
           </div>
         </div>
 
-        {hasIntrusion && (
-          <div className="absolute top-4 right-4 z-20 flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-950/90 border border-rose-500/80 text-rose-300 text-xs font-bold font-mono tracking-wide shadow-xl animate-bounce">
-            <ShieldAlert className="w-4 h-4 text-rose-400" />
-            <span>RESTRICTED ZONE BREACH</span>
-          </div>
-        )}
+        {/* Real-time Traffic Velocity & Speeding HUD (Top Right) */}
+        <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
+          {(() => {
+            const vehicles = smoothObjects.filter((o) => ["car", "truck", "bus", "motorcycle"].includes(o.class));
+            const speedingCount = vehicles.filter((v) => v.is_overspeeding).length;
+            const normalCount = vehicles.filter((v) => !v.is_overspeeding).length;
+
+            return (
+              <div className="flex items-center gap-2">
+                {speedingCount > 0 && (
+                  <div className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-rose-950/90 border border-rose-500/80 text-rose-200 text-xs font-mono font-bold shadow-lg animate-pulse">
+                    <span className="w-2 h-2 rounded-full bg-rose-500" />
+                    <span>{speedingCount} SPEEDING</span>
+                  </div>
+                )}
+
+                {normalCount > 0 && (
+                  <div className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-950/80 border border-emerald-500/50 text-emerald-300 text-xs font-mono font-medium shadow-md">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                    <span>{normalCount} NORMAL</span>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {hasIntrusion && (
+            <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-rose-950/90 border border-rose-500/80 text-rose-300 text-xs font-bold font-mono tracking-wide shadow-xl animate-bounce">
+              <ShieldAlert className="w-4 h-4 text-rose-400" />
+              <span>ZONE INTRUSION</span>
+            </div>
+          )}
+        </div>
 
         {isDrawingZone && (
           <div className="absolute top-16 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 px-5 py-2.5 rounded-2xl bg-zinc-900/95 border border-zinc-700 shadow-2xl">
@@ -287,21 +314,69 @@ export default function VideoPlayer({
             const isSpeeding = obj.is_overspeeding;
             const isMasked = obj.is_masked;
             const isRunning = obj.is_running;
-            const isVehicle = ["car", "truck", "bus"].includes(obj.class);
+            const isVehicle = ["car", "truck", "bus", "motorcycle"].includes(obj.class);
             const isPerson = obj.class === "person";
+
             let strokeColor = "#71717a", fillColor = "rgba(113, 113, 122, 0.08)", badgeBg = "#18181b";
-            if (isIntruder || isSpeeding) { strokeColor = "#ef4444"; fillColor = "rgba(239, 68, 68, 0.18)"; badgeBg = "#7f1d1d"; }
-            else if (isMasked) { strokeColor = "#a855f7"; fillColor = "rgba(168, 85, 247, 0.16)"; badgeBg = "#581c87"; }
-            else if (isRunning) { strokeColor = "#f59e0b"; fillColor = "rgba(245, 158, 11, 0.16)"; badgeBg = "#78350f"; }
-            else if (isVehicle) { strokeColor = "#d4d4d8"; fillColor = "rgba(212, 212, 216, 0.06)"; badgeBg = "#27272a"; }
-            else if (isPerson) { strokeColor = "#a1a1aa"; fillColor = "rgba(161, 161, 170, 0.06)"; badgeBg = "#27272a"; }
+            if (isIntruder || isSpeeding) {
+              strokeColor = "#ef4444";
+              fillColor = "rgba(239, 68, 68, 0.20)";
+              badgeBg = "#7f1d1d";
+            } else if (isMasked) {
+              strokeColor = "#a855f7";
+              fillColor = "rgba(168, 85, 247, 0.16)";
+              badgeBg = "#581c87";
+            } else if (isRunning) {
+              strokeColor = "#f59e0b";
+              fillColor = "rgba(245, 158, 11, 0.16)";
+              badgeBg = "#78350f";
+            } else if (isVehicle) {
+              // Calm Emerald for normal traffic flow
+              strokeColor = "#10b981";
+              fillColor = "rgba(16, 185, 129, 0.10)";
+              badgeBg = "#064e3b";
+            } else if (isPerson) {
+              strokeColor = "#a1a1aa";
+              fillColor = "rgba(161, 161, 170, 0.06)";
+              badgeBg = "#27272a";
+            }
+
             const cleanLbl = cleanLabelText(obj.label);
+            const badgeWidth = Math.max(90, cleanLbl.length * 7.2 + 34);
+
             return (
               <g key={`bbox-${obj.tracking_id || idx}-${cleanLbl}`}>
-                <rect x={x} y={y} width={w} height={h} fill={fillColor} stroke={strokeColor} strokeWidth={isIntruder || isSpeeding || isMasked ? "2.5" : "1.75"} rx="8" />
-                <rect x={Math.max(4, x)} y={y > 28 ? y - 26 : y + h + 4} width={Math.max(90, cleanLbl.length * 7.5 + 36)} height="22" fill={badgeBg} opacity="0.95" rx="6" stroke={strokeColor} strokeWidth="1.2" />
-                <text x={Math.max(10, x + 8)} y={y > 28 ? y - 10 : y + h + 19} fill="#ffffff" fontSize="11" fontWeight="600" fontFamily="Inter, sans-serif">
-                  {cleanLbl} <tspan fill="#a1a1aa" fontSize="10">[{Math.round(obj.confidence)}%]</tspan>
+                <rect
+                  x={x}
+                  y={y}
+                  width={w}
+                  height={h}
+                  fill={fillColor}
+                  stroke={strokeColor}
+                  strokeWidth={isSpeeding ? "2.5" : isIntruder || isMasked ? "2.2" : "1.75"}
+                  strokeDasharray={isSpeeding ? "4,2" : "none"}
+                  rx="8"
+                />
+                <rect
+                  x={Math.max(4, x)}
+                  y={y > 28 ? y - 26 : y + h + 4}
+                  width={badgeWidth}
+                  height="22"
+                  fill={badgeBg}
+                  opacity="0.95"
+                  rx="6"
+                  stroke={strokeColor}
+                  strokeWidth="1.2"
+                />
+                <text
+                  x={Math.max(10, x + 8)}
+                  y={y > 28 ? y - 10 : y + h + 19}
+                  fill="#ffffff"
+                  fontSize="11"
+                  fontWeight={isSpeeding ? "700" : "600"}
+                  fontFamily="Inter, sans-serif"
+                >
+                  {cleanLbl} <tspan fill="#d4d4d8" fontSize="10">[{Math.round(obj.confidence)}%]</tspan>
                 </text>
               </g>
             );

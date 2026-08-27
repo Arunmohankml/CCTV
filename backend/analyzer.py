@@ -242,25 +242,29 @@ class VideoAnalyzer:
                             plate_num = plate_data['plate_number'] if plate_data else 'NIL'
 
                             # Perspective speed calculation
-                            est_speed_kmh = 68
+                            est_speed_kmh = 38
                             is_overspeeding = False
                             if track_id in prev_positions:
                                 last_pos, last_t, last_speed = prev_positions[track_id]
-                                dt = max(0.04, timestamp - last_t)
+                                dt = max(0.03, timestamp - last_t)
                                 if dt < 3.0:
-                                    dist = math.hypot(center_x - last_pos[0], bottom_y - last_pos[1])
-                                    perspective_scale = 1.0 / max(0.18, (bottom_y - 0.12))
-                                    instant_speed = (dist / dt) * perspective_scale * 78.0
-                                    est_speed_kmh = int(0.70 * last_speed + 0.30 * instant_speed) if last_speed > 0 else int(instant_speed)
-                                    est_speed_kmh = max(42, min(138, est_speed_kmh))
-                                    if est_speed_kmh > 82:
+                                    dx = abs(center_x - last_pos[0])
+                                    dy = abs(bottom_y - last_pos[1])
+                                    depth_factor = 1.0 / max(0.12, bottom_y)
+                                    ground_disp = math.sqrt((dx * 22.0 * depth_factor)**2 + (dy * 48.0 * (depth_factor**1.35))**2)
+                                    instant_speed = (ground_disp / dt) * 3.6
+                                    est_speed_kmh = int(0.60 * last_speed + 0.40 * instant_speed) if last_speed > 0 else int(instant_speed)
+                                    est_speed_kmh = max(20, min(140, est_speed_kmh))
+                                    if est_speed_kmh >= 58:
                                         is_overspeeding = True
                                 else:
                                     est_speed_kmh = last_speed
 
                             prev_positions[track_id] = ((center_x, bottom_y), timestamp, est_speed_kmh)
 
-                            obj_label = f'{class_name.upper()} #{track_id} [{plate_num}] [🚨 {est_speed_kmh} KM/H]' if is_overspeeding else f'{class_name.upper()} #{track_id} [{plate_num}] [{est_speed_kmh} KM/H]'
+                            plate_tag = f" [{plate_num}]" if plate_num != 'NIL' else ""
+                            speed_tag = f" [{est_speed_kmh} KM/H • SPEEDING]" if is_overspeeding else f" [{est_speed_kmh} KM/H • NORMAL]"
+                            obj_label = f'{class_name.upper()} #{track_id}{plate_tag}{speed_tag}'
 
                             frame_objects.append({
                                 'class': class_name,
@@ -271,8 +275,9 @@ class VideoAnalyzer:
                                 'plate_number': plate_num,
                                 'is_overspeeding': is_overspeeding,
                                 'speed_kmh': est_speed_kmh,
+                                'speed_status': 'SPEEDING' if is_overspeeding else 'NORMAL',
                                 'in_restricted_zone': in_zone and enable_boundary_check,
-                                'color': '#ef4444' if (in_zone and enable_boundary_check or is_overspeeding) else CLASS_COLORS.get(class_name, '#f59e0b')
+                                'color': '#ef4444' if is_overspeeding else '#10b981'
                             })
                             total_detections_count += 1
 
@@ -295,9 +300,9 @@ class VideoAnalyzer:
                                         'frame': frame_index,
                                         'type': 'vehicle_overspeeding',
                                         'severity': 'HIGH',
-                                        'title': f'🚨 SPEEDING DETECTED ({class_name.upper()} #{track_id})',
-                                        'description': f'Vehicle #{track_id} [{plate_num}] travelling at {est_speed_kmh} km/h (Limit: 75 km/h).',
-                                        'object': f'{class_name.title()} #{track_id} [{plate_num}]',
+                                        'title': f'SPEEDING ANOMALY: {class_name.upper()} #{track_id}{plate_tag} ({est_speed_kmh} KM/H)',
+                                        'description': f'Vehicle #{track_id}{plate_tag} traveling at {est_speed_kmh} km/h (Limit: 50 km/h).',
+                                        'object': f'{class_name.title()} #{track_id}{plate_tag}',
                                         'confidence': round(conf * 100, 1),
                                         'tracking_id': track_id,
                                         'risk_level': 'ELEVATED'
@@ -505,7 +510,7 @@ class VideoAnalyzer:
             t['speed'] for t in self.active_tracks.values() 
             if t.get('class') in VEHICLE_CLASSES and (timestamp - t.get('last_seen', 0)) < 1.5
         ]
-        avg_traffic_speed = int(sum(active_veh_speeds) / len(active_veh_speeds)) if active_veh_speeds else 45
+        avg_traffic_speed = int(sum(active_veh_speeds) / len(active_veh_speeds)) if active_veh_speeds else 40
 
         for det in detections:
             bx, by, bw, bh = det['bbox']
@@ -535,21 +540,23 @@ class VideoAnalyzer:
                 matched_track_ids.add(track_id)
                 last_pos = self.active_tracks[track_id]['last_pos']
                 last_time = self.active_tracks[track_id]['last_seen']
-                dt = max(0.04, timestamp - last_time)
+                dt = max(0.03, timestamp - last_time)
 
                 bottom_y = by + bh
-                # Perspective-calibrated velocity
-                perspective_scale = 1.0 / max(0.18, (bottom_y - 0.12))
-                dist = math.hypot(bcx - last_pos[0], bottom_y - last_pos[1])
-                raw_speed = (dist / dt) * perspective_scale * 78.0
-                prev_speed = self.active_tracks[track_id].get('speed', 68)
-                smoothed_speed = int(0.70 * prev_speed + 0.30 * raw_speed) if prev_speed > 0 else int(raw_speed)
-                smoothed_speed = max(42, min(138, smoothed_speed))
+                # Calibrated ground-plane perspective kinematic velocity
+                dx = abs(bcx - last_pos[0])
+                dy = abs(bottom_y - last_pos[1])
+                depth_factor = 1.0 / max(0.12, bottom_y)
+                ground_disp = math.sqrt((dx * 22.0 * depth_factor)**2 + (dy * 48.0 * (depth_factor**1.35))**2)
+                raw_speed = (ground_disp / dt) * 3.6
+                prev_speed = self.active_tracks[track_id].get('speed', 38)
+                smoothed_speed = int(0.60 * prev_speed + 0.40 * raw_speed) if prev_speed > 0 else int(raw_speed)
+                smoothed_speed = max(18, min(140, smoothed_speed))
             else:
                 track_id = self.next_track_id
                 self.next_track_id += 1
                 matched_track_ids.add(track_id)
-                smoothed_speed = 68
+                smoothed_speed = 36
 
             self.active_tracks[track_id] = {
                 'bbox': [bx, by, bw, bh],
@@ -653,7 +660,7 @@ class VideoAnalyzer:
                         _, buf = cv2.imencode('.jpg', thumb, [cv2.IMWRITE_JPEG_QUALITY, 90])
                         face_b64 = f"data:image/jpeg;base64,{base64.b64encode(buf).decode('utf-8')}"
 
-                        tag_suffix = (' [🎭 MASKED]' if is_masked else '') + (' [🏃 RUNNING]' if is_running else '')
+                        tag_suffix = (' [MASKED]' if is_masked else '') + (' [RUNNING]' if is_running else '')
                         face_card_label = f'Subject #{track_id}' + tag_suffix
                         new_faces.append({
                             'id': f'face-{track_id}',
@@ -672,25 +679,25 @@ class VideoAnalyzer:
                 plate_num = plate_data['plate_number'] if plate_data else 'NIL'
 
                 # Relative Traffic Velocity / Differential Overspeeding Detection
-                is_overspeeding = (smoothed_speed >= 60) or (smoothed_speed - avg_traffic_speed >= 10)
+                is_overspeeding = (smoothed_speed >= 58) or (smoothed_speed - avg_traffic_speed >= 12 and smoothed_speed >= 48)
+
+                plate_str = f" [{plate_num}]" if plate_num != 'NIL' else ""
+                speed_badge = f" [{smoothed_speed} KM/H • SPEEDING]" if is_overspeeding else f" [{smoothed_speed} KM/H • NORMAL]"
+                obj_label = f'{class_name.upper()} #{track_id}{plate_str}{speed_badge}'
 
                 if is_overspeeding:
-                    plate_str = f" [{plate_num}]" if plate_num != 'NIL' else ""
                     new_events.append({
                         'id': f'evt-{uuid.uuid4().hex[:6]}',
                         'timestamp': timestamp,
                         'type': 'vehicle_differential_speeding',
                         'severity': 'HIGH',
                         'title': f'SPEEDING ANOMALY: {class_name.upper()} #{track_id}{plate_str} ({smoothed_speed} KM/H)',
-                        'description': f'Vehicle #{track_id}{plate_str} is traveling at excessive velocity ({smoothed_speed} km/h - Flow Limit: 50 km/h).',
+                        'description': f'Vehicle #{track_id}{plate_str} is traveling at excessive velocity ({smoothed_speed} km/h - Traffic Avg: {avg_traffic_speed} km/h, Limit: 50 km/h).',
                         'object': f'{class_name.title()} #{track_id}{plate_str}',
                         'confidence': round(conf * 100, 1),
                         'tracking_id': track_id,
                         'risk_level': 'ELEVATED'
                     })
-
-                plate_tag = f" [{plate_num}]" if plate_num != 'NIL' else ""
-                obj_label = f'{class_name.upper()} #{track_id}{plate_tag} [{smoothed_speed} KM/H (OVERSPEEDING)]' if is_overspeeding else f'{class_name.upper()} #{track_id}{plate_tag} [{smoothed_speed} KM/H]'
 
                 frame_objects.append({
                     'class': class_name,
@@ -701,8 +708,10 @@ class VideoAnalyzer:
                     'plate_number': plate_num,
                     'is_overspeeding': is_overspeeding,
                     'speed_kmh': smoothed_speed,
+                    'speed_status': 'SPEEDING' if is_overspeeding else 'NORMAL',
+                    'avg_traffic_speed': avg_traffic_speed,
                     'in_restricted_zone': in_zone and enable_boundary_check,
-                    'color': '#ef4444' if (in_zone and enable_boundary_check or is_overspeeding) else CLASS_COLORS.get(class_name, '#f59e0b')
+                    'color': '#ef4444' if is_overspeeding else '#10b981'
                 })
 
                 status_text = 'VERIFIED' if plate_num != 'NIL' else 'NOT VISIBLE / NIL'
